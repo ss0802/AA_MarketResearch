@@ -1,6 +1,6 @@
 from django.test import SimpleTestCase
 
-from apps.market.providers.yahoo import YahooFinanceProvider
+from data_worker.providers.yahoo import YahooFinanceProvider
 
 
 class YahooFinanceProviderTests(SimpleTestCase):
