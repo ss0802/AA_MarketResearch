@@ -9,10 +9,12 @@ from data_worker.services.validator import validate_ohlcv
 
 def _to_decimal(value) -> Decimal:
     """
-    Convert pandas/numpy numeric values safely to Decimal.
+    Convert numeric values to the same precision
+    used by the PostgreSQL OHLCV columns.
     """
-    return Decimal(str(value))
-
+    return Decimal(str(value)).quantize(
+        Decimal("0.000001")
+    )
 
 @transaction.atomic
 def ingest_ohlcv(df: pd.DataFrame) -> dict:

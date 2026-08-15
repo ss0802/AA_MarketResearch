@@ -82,3 +82,22 @@ class OHLCVIngestionTests(TestCase):
             candle.close,
             Decimal("107.0"),
         )
+
+
+    def test_decimal_precision_does_not_trigger_false_update(self):
+        df = self.make_df()
+
+        df.loc[0, "open"] = 100.123456789
+        df.loc[0, "high"] = 110.123456789
+        df.loc[0, "low"] = 95.123456789
+        df.loc[0, "close"] = 105.123456789
+        df.loc[0, "adj_close"] = 105.123456789
+
+        first_stats = ingest_ohlcv(df)
+        second_stats = ingest_ohlcv(df)
+
+        self.assertEqual(first_stats["created"], 1)
+
+        self.assertEqual(second_stats["created"], 0)
+        self.assertEqual(second_stats["updated"], 0)
+        self.assertEqual(second_stats["unchanged"], 1)
