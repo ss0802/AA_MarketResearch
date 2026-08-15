@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+
+    <title>
+        {{ stock.symbol }} | AA MarketResearch
+    </title>
+
+    <script src="https://cdn.plot.ly/plotly-3.1.0.min.js"></script>
+
+    <style>
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: #f4f6f8;
+            color: #222;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: auto;
+            padding: 30px;
+        }
+
+        .mtf-container {
+            display: grid;
+            grid-template-columns: repeat(
+                3,
+                minmax(0, 1fr)
+            );
+            gap: 15px;
+            margin-bottom: 25px;
+        }
+
+        .mtf-chart-card {
+            background: white;
+            border-radius: 8px;
+            padding: 10px;
+            min-width: 0;
+        }
+
+        .mtf-chart-card h3 {
+            margin: 5px 10px;
+        }
+
+        .mtf-chart {
+            width: 100%;
+            height: 450px;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        @media (max-width: 1100px) {
+
+            .mtf-container {
+                grid-template-columns: 1fr;
+            }
+
+            .mtf-chart {
+                height: 420px;
+            }
+        }
+
+        .header {
+            margin-bottom: 20px;
+        }
+
+        h1 {
+            margin-bottom: 4px;
+        }
+
+        .subtitle {
+            color: #666;
+        }
+
+        .summary {
+            display: flex;
+            gap: 15px;
+            margin: 20px 0;
+        }
+
+        .card {
+            background: white;
+            padding: 15px 20px;
+            border-radius: 8px;
+            min-width: 130px;
+        }
+
+        .timeframe-buttons {
+            margin-bottom: 15px;
+        }
+
+        button {
+            border: 1px solid #ccc;
+            background: white;
+            padding: 9px 18px;
+            margin-right: 6px;
+            cursor: pointer;
+            border-radius: 5px;
+        }
+
+        button.active {
+            background: #222;
+            color: white;
+        }
+
+        .chart-card {
+            background: white;
+            border-radius: 8px;
+            padding: 10px;
+            margin-bottom: 25px;
+        }
+
+        #chart {
+            width: 100%;
+            height: 600px;
+        }
+
+        .table-section {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th,
+        td {
+            padding: 9px 12px;
+            border-bottom: 1px solid #eee;
+            text-align: right;
+        }
+
+        th:first-child,
+        td:first-child {
+            text-align: left;
+        }
+
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+
+
+<body>
+
+<div class="container">
+
+    <div class="header">
+
+        <h1>{{ stock.symbol }}</h1>
+
+        <div class="subtitle">
+            AA MarketResearch
+        </div>
+
+    </div>
+
+
+    <div class="summary">
+
+        <div class="card">
+            <strong>Daily</strong>
+            <div>{{ daily_count }} candles</div>
+        </div>
+
+        <div class="card">
+            <strong>Weekly</strong>
+            <div>{{ weekly_count }} candles</div>
+        </div>
+
+        <div class="card">
+            <strong>Monthly</strong>
+            <div>{{ monthly_count }} candles</div>
+        </div>
+
+    </div>
+
+
+    <div class="timeframe-buttons">
+
+        <button
+            id="btn-D"
+            class="active"
+            onclick="changeTimeframe('D')">
+            Daily
+        </button>
+
+        <button
+            id="btn-W"
+            onclick="changeTimeframe('W')">
+            Weekly
+        </button>
+
+        <button
+            id="btn-M"
+            onclick="changeTimeframe('M')">
+            Monthly
+        </button>
+
+        <button
+            id="btn-MTF"
+            onclick="showMTF()">
+            MTF View
+        </button>
+
+    </div>
+
+
+    <div class="chart-card" id="single-chart-container">
+        <div id="chart"></div>
+    </div>
+
+    <div
+        id="mtf-container"
+        class="mtf-container hidden"
+    >
+
+        <div class="mtf-chart-card">
+            <h3>Daily</h3>
+            <div id="chart-mtf-D" class="mtf-chart"></div>
+        </div>
+
+        <div class="mtf-chart-card">
+            <h3>Weekly</h3>
+            <div id="chart-mtf-W" class="mtf-chart"></div>
+        </div>
+
+        <div class="mtf-chart-card">
+            <h3>Monthly</h3>
+            <div id="chart-mtf-M" class="mtf-chart"></div>
+        </div>
+
+    </div>
+
+
+    <div class="table-section">
+
+        <h2 id="table-title">
+            Recent Daily OHLCV
+        </h2>
+
+
+        <div id="table-D">
+            {% include "market/partials/ohlcv_table.html" with candles=daily %}
+        </div>
+
+
+        <div id="table-W" class="hidden">
+            {% include "market/partials/ohlcv_table.html" with candles=weekly %}
+        </div>
+
+
+        <div id="table-M" class="hidden">
+            {% include "market/partials/ohlcv_table.html" with candles=monthly %}
+        </div>
+
+    </div>
+
+</div>
+
+
+<script>
+
+    const chartData = {{ chart_data|safe }};
+
+    let currentTimeframe = "D";
+
+
+    function drawChart(timeframe) {
+
+        const candles = chartData[timeframe];
+
+        const trace = {
+
+            x: candles.map(row => row.date),
+
+            open: candles.map(row => row.open),
+            high: candles.map(row => row.high),
+            low: candles.map(row => row.low),
+            close: candles.map(row => row.close),
+
+            type: "candlestick",
+
+            name: "{{ stock.symbol }}"
+        };
+
+
+        const layout = {
+
+            title: {
+                text:
+                    "{{ stock.symbol }} - " +
+                    (
+                        timeframe === "D"
+                            ? "Daily"
+                            : timeframe === "W"
+                            ? "Weekly"
+                            : "Monthly"
+                    )
+            },
+
+            xaxis: {
+                rangeslider: {
+                    visible: false
+                }
+            },
+
+            yaxis: {
+                title: "Price",
+                fixedrange: false
+            },
+
+            margin: {
+                l: 60,
+                r: 30,
+                t: 60,
+                b: 50
+            },
+
+            dragmode: "pan"
+        };
+
+
+        const config = {
+
+            responsive: true,
+
+            scrollZoom: true,
+
+            displaylogo: false
+        };
+
+
+        Plotly.react(
+            "chart",
+            [trace],
+            layout,
+            config
+        );
+    }
+
+
+    function changeTimeframe(timeframe) {
+
+        currentTimeframe = timeframe;
+
+        ["D", "W", "M"].forEach(tf => {
+
+            document
+                .getElementById("btn-" + tf)
+                .classList.remove("active");
+
+            document
+                .getElementById("table-" + tf)
+                .classList.add("hidden");
+
+        });
+
+        document
+            .getElementById(
+                "mtf-container"
+            )
+            .classList.add("hidden");
+
+
+        document
+            .getElementById(
+                "single-chart-container"
+            )
+            .classList.remove("hidden");
+
+
+        document
+            .getElementById("btn-MTF")
+            .classList.remove("active");
+
+
+        document
+            .getElementById("btn-" + timeframe)
+            .classList.add("active");
+
+
+        document
+            .getElementById("table-" + timeframe)
+            .classList.remove("hidden");
+
+
+        const names = {
+            D: "Daily",
+            W: "Weekly",
+            M: "Monthly"
+        };
+
+
+        document.getElementById(
+            "table-title"
+        ).textContent =
+            "Recent " +
+            names[timeframe] +
+            " OHLCV";
+
+
+        drawChart(timeframe);
+    }
+
+    function drawMTFChart(timeframe) {
+
+        const candles = chartData[timeframe];
+
+        const names = {
+            D: "Daily",
+            W: "Weekly",
+            M: "Monthly"
+        };
+
+        const trace = {
+
+            x: candles.map(row => row.date),
+
+            open: candles.map(row => row.open),
+            high: candles.map(row => row.high),
+            low: candles.map(row => row.low),
+            close: candles.map(row => row.close),
+
+            type: "candlestick",
+
+            name: "{{ stock.symbol }}"
+        };
+
+
+        const layout = {
+
+            title: {
+                text:
+                    "{{ stock.symbol }} - " +
+                    names[timeframe]
+            },
+
+            xaxis: {
+                rangeslider: {
+                    visible: false
+                }
+            },
+
+            yaxis: {
+                title: "Price"
+            },
+
+            margin: {
+                l: 45,
+                r: 15,
+                t: 45,
+                b: 35
+            },
+
+            dragmode: "pan",
+
+            showlegend: false
+        };
+
+
+        const config = {
+
+            responsive: true,
+
+            scrollZoom: true,
+
+            displaylogo: false
+        };
+
+
+        Plotly.react(
+            "chart-mtf-" + timeframe,
+            [trace],
+            layout,
+            config
+        );
+    }
+
+    function showMTF() {
+
+        ["D", "W", "M", "MTF"].forEach(tf => {
+
+            const button =
+                document.getElementById(
+                    "btn-" + tf
+                );
+
+            if (button) {
+                button.classList.remove(
+                    "active"
+                );
+            }
+        });
+
+
+        document
+            .getElementById("btn-MTF")
+            .classList.add("active");
+
+
+        document
+            .getElementById(
+                "single-chart-container"
+            )
+            .classList.add("hidden");
+
+
+        document
+            .getElementById(
+                "mtf-container"
+            )
+            .classList.remove("hidden");
+
+
+        drawMTFChart("D");
+        drawMTFChart("W");
+        drawMTFChart("M");
+    }
+
+
+    drawChart("D");
+
+</script>
+
+</body>
+</html>
