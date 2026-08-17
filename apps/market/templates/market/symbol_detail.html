@@ -117,7 +117,7 @@
 
         #chart {
             width: 100%;
-            height: 600px;
+            height: 680px;
         }
 
         .table-section {
@@ -293,6 +293,22 @@
             name: "{{ stock.symbol }}"
         };
 
+        const volumeTrace = {
+            x: candles.map(row => row.date),
+            y: candles.map(row => row.volume),
+            type: "bar",
+            name: "Volume",
+            marker: {
+                color: candles.map(row =>
+                    Number(row.close) >= Number(row.open)
+                        ? "rgba(38, 166, 154, 0.55)"
+                        : "rgba(239, 83, 80, 0.55)"
+                )
+            },
+            yaxis: "y2",
+            hovertemplate: "%{x}<br>Volume: %{y:,}<extra></extra>"
+        };
+
 
         const layout = {
 
@@ -316,7 +332,15 @@
 
             yaxis: {
                 title: "Price",
-                fixedrange: false
+                fixedrange: false,
+                domain: [0.28, 1]
+            },
+
+            yaxis2: {
+                title: "Volume",
+                domain: [0, 0.20],
+                fixedrange: false,
+                rangemode: "tozero"
             },
 
             margin: {
@@ -342,7 +366,7 @@
 
         Plotly.react(
             "chart",
-            [trace],
+            [trace, volumeTrace],
             layout,
             config
         );
@@ -436,6 +460,22 @@
             name: "{{ stock.symbol }}"
         };
 
+        const volumeTrace = {
+            x: candles.map(row => row.date),
+            y: candles.map(row => row.volume),
+            type: "bar",
+            name: "Volume",
+            marker: {
+                color: candles.map(row =>
+                    Number(row.close) >= Number(row.open)
+                        ? "rgba(38, 166, 154, 0.55)"
+                        : "rgba(239, 83, 80, 0.55)"
+                )
+            },
+            yaxis: "y2",
+            hovertemplate: "%{x}<br>Volume: %{y:,}<extra></extra>"
+        };
+
 
         const layout = {
 
@@ -452,7 +492,14 @@
             },
 
             yaxis: {
-                title: "Price"
+                title: "Price",
+                domain: [0.30, 1]
+            },
+
+            yaxis2: {
+                title: "Volume",
+                domain: [0, 0.20],
+                rangemode: "tozero"
             },
 
             margin: {
@@ -480,7 +527,7 @@
 
         Plotly.react(
             "chart-mtf-" + timeframe,
-            [trace],
+            [trace, volumeTrace],
             layout,
             config
         );

@@ -8,46 +8,48 @@ from data_worker.services.validator import validate_ohlcv
 
 
 def _to_decimal(value) -> Decimal:
-    """
-    Convert numeric values to the same precision
-    used by the PostgreSQL OHLCV columns.
-    """
-    return Decimal(str(value)).quantize(
-        Decimal("0.000001")
+    return Decimal(str(value)).quantize(Decimal("0.000001"))
+
+
+def _resolve_symbol(df: pd.DataFrame, symbol_instance: Symbol | None) -> Symbol:
+    codes = {str(value).upper() for value in df["symbol"].unique()}
+    if len(codes) != 1:
+        raise ValueError("One OHLCV ingestion call must contain exactly one symbol")
+    code = codes.pop()
+    if symbol_instance is not None:
+        if symbol_instance.symbol.upper() != code:
+            raise ValueError("The supplied Symbol does not match the OHLCV data")
+        return symbol_instance
+
+    matches = Symbol.objects.filter(symbol=code)
+    if matches.count() > 1:
+        raise ValueError(
+            f"Symbol {code} exists in multiple markets; pass symbol_instance explicitly"
+        )
+    return matches.first() or Symbol.objects.create(
+        symbol=code, market=Symbol.Market.US, currency="USD"
     )
 
+
 @transaction.atomic
-def ingest_ohlcv(df: pd.DataFrame) -> dict:
-    """
-    Validate and persist canonical OHLCV data.
-
-    The DataFrame must already have been normalized.
-
-    Returns ingestion statistics:
-        created
-        updated
-        unchanged
-        total
-    """
-
+def ingest_ohlcv(df: pd.DataFrame, symbol_instance: Symbol | None = None) -> dict:
+    """Validate and bulk-upsert canonical OHLCV for one exact instrument."""
     validate_ohlcv(df)
-
-    stats = {
-        "created": 0,
-        "updated": 0,
-        "unchanged": 0,
-        "total": len(df),
+    symbol = _resolve_symbol(df, symbol_instance)
+    keys = [(row.timeframe, row.date) for row in df.itertuples(index=False)]
+    existing = {
+        (bar.timeframe, bar.date): bar
+        for bar in OHLCV.objects.filter(
+            symbol=symbol,
+            timeframe__in={key[0] for key in keys},
+            date__in={key[1] for key in keys},
+        )
     }
+    to_create, to_update = [], []
+    unchanged = 0
+    fields = ["open", "high", "low", "close", "adj_close", "volume"]
 
     for row in df.itertuples(index=False):
-
-        symbol, _ = Symbol.objects.get_or_create(
-            symbol=row.symbol,
-            defaults={
-                "currency": "USD",
-            },
-        )
-
         values = {
             "open": _to_decimal(row.open),
             "high": _to_decimal(row.high),
@@ -56,40 +58,26 @@ def ingest_ohlcv(df: pd.DataFrame) -> dict:
             "adj_close": _to_decimal(row.adj_close),
             "volume": int(row.volume),
         }
-
-        existing = OHLCV.objects.filter(
-            symbol=symbol,
-            timeframe=row.timeframe,
-            date=row.date,
-        ).first()
-
-        if existing is None:
-            OHLCV.objects.create(
-                symbol=symbol,
-                timeframe=row.timeframe,
-                date=row.date,
-                **values,
+        bar = existing.get((row.timeframe, row.date))
+        if bar is None:
+            to_create.append(
+                OHLCV(symbol=symbol, timeframe=row.timeframe, date=row.date, **values)
             )
+        elif any(getattr(bar, field) != value for field, value in values.items()):
+            for field, value in values.items():
+                setattr(bar, field, value)
+            to_update.append(bar)
+        else:
+            unchanged += 1
 
-            stats["created"] += 1
-            continue
+    if to_create:
+        OHLCV.objects.bulk_create(to_create, batch_size=1000)
+    if to_update:
+        OHLCV.objects.bulk_update(to_update, fields, batch_size=1000)
 
-        changed = any(
-            getattr(existing, field) != value
-            for field, value in values.items()
-        )
-
-        if not changed:
-            stats["unchanged"] += 1
-            continue
-
-        for field, value in values.items():
-            setattr(existing, field, value)
-
-        existing.save(
-            update_fields=list(values.keys())
-        )
-
-        stats["updated"] += 1
-
-    return stats
+    return {
+        "created": len(to_create),
+        "updated": len(to_update),
+        "unchanged": unchanged,
+        "total": len(df),
+    }

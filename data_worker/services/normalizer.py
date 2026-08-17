@@ -92,13 +92,30 @@ def normalize_ohlcv(
         }
     )
 
-    normalized["symbol"] = symbol.upper()
-    normalized["timeframe"] = timeframe
+    # Thinly traded auction candles occasionally arrive with High/Low values
+    # that do not enclose Open and Close. Preserve Open/Close and repair only
+    # the canonical candle envelope.
+    normalized["high"] = normalized[["open", "high", "close"]].max(axis=1)
+    normalized["low"] = normalized[["open", "low", "close"]].min(axis=1)
 
     if "Adj Close" in df.columns:
         normalized["adj_close"] = df["Adj Close"]
     else:
-        normalized["adj_close"] = df["Close"]
+        normalized["adj_close"] = normalized["close"]
+
+    invalid_adjusted = normalized["adj_close"].isna() | (normalized["adj_close"] <= 0)
+    normalized.loc[invalid_adjusted, "adj_close"] = normalized.loc[
+        invalid_adjusted, "close"
+    ]
+
+    # Yahoo can include empty, zero-volume placeholder sessions. They are not
+    # candles and should not prevent the surrounding valid history importing.
+    normalized = normalized.dropna(
+        subset=["open", "high", "low", "close", "adj_close", "volume"]
+    ).reset_index(drop=True)
+
+    normalized["symbol"] = symbol.upper()
+    normalized["timeframe"] = timeframe
 
     # --------------------------------------------------
     # Final column order
