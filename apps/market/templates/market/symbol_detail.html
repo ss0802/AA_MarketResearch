@@ -1,3 +1,4 @@
+{% load static %}
 <!DOCTYPE html>
 <html lang="en">
 
@@ -8,7 +9,7 @@
         {{ stock.symbol }} | AA MarketResearch
     </title>
 
-    <script src="https://cdn.plot.ly/plotly-3.1.0.min.js"></script>
+    <script src="{% static 'market/vendor/plotly-3.1.0.min.js' %}"></script>
 
     <style>
         body {
@@ -49,6 +50,10 @@
             width: 100%;
             height: 450px;
         }
+
+        .mtf-indicator { border-top: 1px solid #eaecf0; margin-top: 6px; }
+        .mtf-indicator summary { cursor: pointer; padding: 10px; font-weight: 700; color: #475467; }
+        .mtf-macd { width: 100%; height: 250px; }
 
         .hidden {
             display: none !important;
@@ -114,6 +119,19 @@
             padding: 10px;
             margin-bottom: 25px;
         }
+
+        .chart-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 8px 10px 4px; color: #667085; font-size: 13px; }
+        .chart-tools button { padding: 7px 12px; margin: 0; }
+        .chart-tools button.active-tool { background: #7f56d9; color: white; }
+        .drawing-status { flex-basis: 100%; color: #6941c6; min-height: 18px; }
+        .drawing-list { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 8px; }
+        .drawing-chip { display: flex; align-items: center; gap: 6px; background: #f2f4f7; border-radius: 16px; padding: 5px 9px; color: #344054; }
+        .drawing-chip button { border: 0; background: transparent; padding: 1px 4px; color: #475467; }
+        .indicator-panel { background: white; border-radius: 8px; padding: 0 14px; margin-bottom: 25px; }
+        .indicator-panel summary { cursor: pointer; padding: 14px 2px; font-weight: 700; }
+        .indicator-controls { display: flex; align-items: center; gap: 10px; padding-bottom: 8px; }
+        .indicator-controls select { padding: 7px; border: 1px solid #ccc; border-radius: 5px; }
+        #indicator-chart, #indicator-chart-secondary { width: 100%; height: 300px; }
 
         #chart {
             width: 100%;
@@ -216,8 +234,31 @@
 
 
     <div class="chart-card" id="single-chart-container">
+        <div class="chart-tools">
+            <strong>Saved drawings:</strong>
+            <button type="button" data-drawing-tool="HORIZONTAL" onclick="startManagedDrawing('HORIZONTAL')">Horizontal S/R</button>
+            <button type="button" data-drawing-tool="TREND_RAY" onclick="startManagedDrawing('TREND_RAY')">Trend ray</button>
+            <button type="button" data-drawing-tool="PARALLEL_CHANNEL" onclick="startManagedDrawing('PARALLEL_CHANNEL')">Parallel channel</button>
+            <button type="button" onclick="cancelManagedDrawing()">Cancel</button>
+            <button type="button" onclick="clearTrendlines(currentTimeframe)">Clear temporary lines</button>
+            <div id="drawing-status" class="drawing-status">Saved drawings appear on all timeframes. The Plotly Draw line tool remains available for temporary notes.</div>
+            <div id="drawing-list" class="drawing-list"></div>
+        </div>
         <div id="chart"></div>
     </div>
+
+    <details class="indicator-panel" id="indicator-panel" open>
+        <summary>Indicators</summary>
+        <div class="indicator-controls">
+            <label for="indicator-select"><strong>Panel</strong></label>
+            <select id="indicator-select" onchange="drawIndicator(currentTimeframe)">
+                <option value="MACD">MACD (12, 26, 9)</option>
+                <option value="NONE">None</option>
+            </select>
+        </div>
+        <div id="indicator-chart"></div>
+        <div id="indicator-chart-secondary"></div>
+    </details>
 
     <div
         id="mtf-container"
@@ -227,16 +268,19 @@
         <div class="mtf-chart-card">
             <h3>Daily</h3>
             <div id="chart-mtf-D" class="mtf-chart"></div>
+            <details class="mtf-indicator" open><summary>Daily MACD (12, 26, 9)</summary><div id="macd-mtf-D" class="mtf-macd"></div></details>
         </div>
 
         <div class="mtf-chart-card">
             <h3>Weekly</h3>
             <div id="chart-mtf-W" class="mtf-chart"></div>
+            <details class="mtf-indicator" open><summary>Weekly MACD (12, 26, 9)</summary><div id="macd-mtf-W" class="mtf-macd"></div></details>
         </div>
 
         <div class="mtf-chart-card">
             <h3>Monthly</h3>
             <div id="chart-mtf-M" class="mtf-chart"></div>
+            <details class="mtf-indicator" open><summary>Monthly MACD (12, 26, 9)</summary><div id="macd-mtf-M" class="mtf-macd"></div></details>
         </div>
 
     </div>
@@ -273,6 +317,331 @@
     const chartData = {{ chart_data|safe }};
 
     let currentTimeframe = "D";
+    let sharedDrawings = [];
+    let managedDrawingMode = null;
+    let managedSegments = [];
+    let processingManagedShape = false;
+
+    const drawingsApiUrl = "{% url 'market:chart_drawings' stock.id %}";
+
+    function csrfToken() {
+        const item = document.cookie.split("; ").find(row => row.startsWith("csrftoken="));
+        return item ? decodeURIComponent(item.split("=")[1]) : "";
+    }
+
+    async function loadSharedDrawings() {
+        const response = await fetch(drawingsApiUrl);
+        const payload = await response.json();
+        sharedDrawings = payload.drawings || [];
+        renderDrawingList();
+    }
+
+    function drawingName(drawing) {
+        const names = {HORIZONTAL: "Horizontal", TREND_RAY: "Trend ray", PARALLEL_CHANNEL: "Channel"};
+        return drawing.label || names[drawing.drawing_type] || drawing.drawing_type;
+    }
+
+    function renderDrawingList() {
+        const container = document.getElementById("drawing-list");
+        container.innerHTML = "";
+        sharedDrawings.forEach(drawing => {
+            const chip = document.createElement("span");
+            chip.className = "drawing-chip";
+            chip.style.borderLeft = "4px solid " + drawing.color;
+            const title = document.createElement("span");
+            title.textContent = drawingName(drawing) + " · " + drawing.source_timeframe;
+            if (!drawing.is_visible) title.style.opacity = ".45";
+            const visibility = document.createElement("button");
+            visibility.type = "button";
+            visibility.textContent = drawing.is_visible ? "Hide" : "Show";
+            visibility.onclick = () => updateSharedDrawing(drawing.id, {is_visible: !drawing.is_visible});
+            const remove = document.createElement("button");
+            remove.type = "button";
+            remove.textContent = "Delete";
+            remove.onclick = () => deleteSharedDrawing(drawing.id);
+            chip.append(title, visibility, remove);
+            container.appendChild(chip);
+        });
+    }
+
+    function setDrawingStatus(message) {
+        document.getElementById("drawing-status").textContent = message;
+    }
+
+    function startManagedDrawing(mode) {
+        managedDrawingMode = mode;
+        managedSegments = [];
+        document.querySelectorAll("[data-drawing-tool]").forEach(button => {
+            button.classList.toggle("active-tool", button.dataset.drawingTool === mode);
+        });
+        const instructions = {
+            HORIZONTAL: "Drag a short line at the required support/resistance price.",
+            TREND_RAY: "Drag the two anchor points of the trendline. It will extend to the right.",
+            PARALLEL_CHANNEL: "Draw the first channel boundary, then draw the second boundary. It will be made exactly parallel."
+        };
+        setDrawingStatus(instructions[mode]);
+        Plotly.relayout("chart", {dragmode: "drawline"});
+    }
+
+    function cancelManagedDrawing(redraw = true) {
+        managedDrawingMode = null;
+        managedSegments = [];
+        processingManagedShape = false;
+        document.querySelectorAll("[data-drawing-tool]").forEach(button => button.classList.remove("active-tool"));
+        setDrawingStatus("Saved drawings appear on all timeframes. The Plotly Draw line tool remains available for temporary notes.");
+        if (redraw) drawChart(currentTimeframe);
+    }
+
+    async function saveManagedDrawing(points) {
+        const response = await fetch(drawingsApiUrl, {
+            method: "POST",
+            headers: {"Content-Type": "application/json", "X-CSRFToken": csrfToken()},
+            body: JSON.stringify({
+                drawing_type: managedDrawingMode,
+                source_timeframe: currentTimeframe,
+                points: points,
+                color: "#7f56d9",
+                line_width: 2
+            })
+        });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.error || "The drawing could not be saved.");
+        sharedDrawings.push(payload.drawing);
+        renderDrawingList();
+        cancelManagedDrawing(false);
+        drawChart(currentTimeframe);
+    }
+
+    async function updateSharedDrawing(id, changes) {
+        const response = await fetch("/api/drawings/" + id + "/", {
+            method: "PATCH",
+            headers: {"Content-Type": "application/json", "X-CSRFToken": csrfToken()},
+            body: JSON.stringify(changes)
+        });
+        if (!response.ok) return;
+        const payload = await response.json();
+        sharedDrawings = sharedDrawings.map(item => item.id === id ? payload.drawing : item);
+        renderDrawingList();
+        if (!document.getElementById("single-chart-container").classList.contains("hidden")) drawChart(currentTimeframe);
+        else showMTF();
+    }
+
+    async function deleteSharedDrawing(id) {
+        if (!window.confirm("Delete this saved drawing from every timeframe?")) return;
+        const response = await fetch("/api/drawings/" + id + "/", {
+            method: "DELETE",
+            headers: {"X-CSRFToken": csrfToken()}
+        });
+        if (!response.ok) return;
+        sharedDrawings = sharedDrawings.filter(item => item.id !== id);
+        renderDrawingList();
+        if (!document.getElementById("single-chart-container").classList.contains("hidden")) drawChart(currentTimeframe);
+        else showMTF();
+    }
+
+    function dateMilliseconds(value) {
+        return new Date(String(value).slice(0, 10) + "T00:00:00Z").getTime();
+    }
+
+    function projectedPoint(first, second, targetDate) {
+        const firstTime = dateMilliseconds(first.date);
+        const secondTime = dateMilliseconds(second.date);
+        const targetTime = dateMilliseconds(targetDate);
+        const slope = (Number(second.price) - Number(first.price)) / (secondTime - firstTime || 1);
+        return Number(first.price) + slope * (targetTime - firstTime);
+    }
+
+    function visibleCandleCount(timeframe, compact = false) {
+        const counts = compact ? {D: 70, W: 70, M: 48} : {D: 120, W: 104, M: 60};
+        return counts[timeframe];
+    }
+
+    function visibleCandles(candles, timeframe, compact = false) {
+        return candles.slice(-visibleCandleCount(timeframe, compact));
+    }
+
+    function candlePriceRange(candles, timeframe, compact = false) {
+        const visible = visibleCandles(candles, timeframe, compact);
+        if (!visible.length) return undefined;
+        const minimum = Math.min(...visible.map(item => Number(item.low)));
+        const maximum = Math.max(...visible.map(item => Number(item.high)));
+        const padding = Math.max((maximum - minimum) * .08, maximum * .01, .01);
+        return [Math.max(0, minimum - padding), maximum + padding];
+    }
+
+    function candleVolumeRange(candles, timeframe, compact = false) {
+        const visible = visibleCandles(candles, timeframe, compact);
+        if (!visible.length) return undefined;
+        const maximum = Math.max(...visible.map(item => Number(item.volume) || 0));
+        return [0, Math.max(1, maximum * 1.08)];
+    }
+
+    function extendedDate(candles, timeframe, compact = false) {
+        const visible = visibleCandles(candles, timeframe, compact);
+        if (!visible.length) return new Date().toISOString().slice(0, 10);
+        const minimum = dateMilliseconds(visible[0].date);
+        const maximum = dateMilliseconds(visible[visible.length - 1].date);
+        return new Date(maximum + Math.max(86400000, (maximum - minimum) * .20)).toISOString().slice(0, 10);
+    }
+
+    function sharedDrawingShapes(candles, timeframe, compact = false) {
+        const shapes = [];
+        sharedDrawings.filter(item => item.is_visible).forEach(drawing => {
+            const line = {color: drawing.color, width: drawing.line_width};
+            const points = drawing.points;
+            if (drawing.drawing_type === "HORIZONTAL") {
+                shapes.push({type: "line", xref: "paper", x0: 0, x1: 1, y0: Number(points[0].price), y1: Number(points[0].price), line: line, editable: false});
+                return;
+            }
+            const endDate = extendedDate(candles, timeframe, compact);
+            const endPrice = projectedPoint(points[0], points[1], endDate);
+            shapes.push({type: "line", x0: points[0].date, y0: Number(points[0].price), x1: endDate, y1: endPrice, line: line, editable: false});
+            if (drawing.drawing_type === "PARALLEL_CHANNEL") {
+                const offset = Number(points[2].price) - projectedPoint(points[0], points[1], points[2].date);
+                shapes.push({type: "line", x0: points[0].date, y0: Number(points[0].price) + offset, x1: endDate, y1: endPrice + offset, line: line, editable: false});
+            }
+        });
+        return shapes;
+    }
+
+    function managedPointsFromSegments() {
+        const first = managedSegments[0];
+        if (managedDrawingMode === "HORIZONTAL") return [{date: first.x0, price: first.y0}];
+        const points = [{date: first.x0, price: first.y0}, {date: first.x1, price: first.y1}];
+        if (managedDrawingMode === "PARALLEL_CHANNEL") {
+            points.push({date: managedSegments[1].x0, price: managedSegments[1].y0});
+        }
+        return points;
+    }
+
+    function captureManagedShape(chartElement) {
+        if (!managedDrawingMode || processingManagedShape) return;
+        const shapes = (chartElement.layout && chartElement.layout.shapes) || [];
+        const latest = shapes[shapes.length - 1];
+        if (!latest || latest.x0 === undefined || latest.y0 === undefined) return;
+        processingManagedShape = true;
+        managedSegments.push({x0: String(latest.x0).slice(0, 10), y0: latest.y0, x1: String(latest.x1).slice(0, 10), y1: latest.y1});
+        if (managedDrawingMode === "PARALLEL_CHANNEL" && managedSegments.length === 1) {
+            processingManagedShape = false;
+            setDrawingStatus("Now draw the second channel boundary; its slope will be aligned automatically.");
+            return;
+        }
+        saveManagedDrawing(managedPointsFromSegments()).catch(error => {
+            setDrawingStatus(error.message);
+            processingManagedShape = false;
+        });
+    }
+
+    function drawingStorageKey(timeframe) {
+        return "aa-trendlines:{{ stock.market }}:{{ stock.symbol }}:" + timeframe;
+    }
+
+    function savedTrendlines(timeframe) {
+        try {
+            return JSON.parse(localStorage.getItem(drawingStorageKey(timeframe))) || [];
+        } catch (error) {
+            return [];
+        }
+    }
+
+    function rememberTrendlines(timeframe, chartElement) {
+        localStorage.setItem(
+            drawingStorageKey(timeframe),
+            JSON.stringify(((chartElement.layout && chartElement.layout.shapes) || []).filter(shape => shape.editable !== false))
+        );
+    }
+
+    function clearTrendlines(timeframe) {
+        localStorage.removeItem(drawingStorageKey(timeframe));
+        drawChart(timeframe);
+    }
+
+    function ema(values, period) {
+        if (!values.length) return [];
+        const multiplier = 2 / (period + 1);
+        const result = [values[0]];
+        for (let index = 1; index < values.length; index++) {
+            result.push(values[index] * multiplier + result[index - 1] * (1 - multiplier));
+        }
+        return result;
+    }
+
+    function macdSeries(candles) {
+        const closes = candles.map(row => Number(row.close));
+        const fast = ema(closes, 12);
+        const slow = ema(closes, 26);
+        const macd = closes.map((value, index) => fast[index] - slow[index]);
+        const signal = ema(macd, 9);
+        return {
+            macd: macd,
+            signal: signal,
+            histogram: macd.map((value, index) => value - signal[index])
+        };
+    }
+
+    function drawMacdPanel(elementId, timeframe, compact = false) {
+        const chartElement = document.getElementById(elementId);
+        chartElement.style.display = "block";
+        chartElement.style.height = compact ? "250px" : "300px";
+        const candles = chartData[timeframe];
+        const values = macdSeries(candles);
+        const dates = candles.map(row => row.date);
+        const traces = [
+            {
+                x: dates, y: values.histogram, type: "bar", name: "Histogram",
+                marker: {color: values.histogram.map(value => value >= 0 ? "rgba(38,166,154,.65)" : "rgba(239,83,80,.65)")},
+                hovertemplate: "%{x}<br>Histogram: %{y:.4f}<extra></extra>"
+            },
+            {x: dates, y: values.macd, type: "scatter", mode: "lines", name: "MACD", line: {color: "#175cd3", width: 2}},
+            {x: dates, y: values.signal, type: "scatter", mode: "lines", name: "Signal", line: {color: "#f79009", width: 2}}
+        ];
+        Plotly.react(chartElement, traces, {
+            title: {text: (timeframe === "D" ? "Daily" : timeframe === "W" ? "Weekly" : "Monthly") + " MACD (12, 26, 9)", font: {size: 15}},
+            xaxis: {type: "date", range: initialDateRange(candles, timeframe, compact), rangeslider: {visible: false}},
+            yaxis: {title: "MACD", zeroline: true, zerolinecolor: "#98a2b3"},
+            margin: {l: 60, r: 30, t: 45, b: 45},
+            legend: {orientation: "h", x: 0, y: 1.13},
+            dragmode: "pan"
+        }, {responsive: true, scrollZoom: true, displaylogo: false});
+    }
+
+    function drawIndicator(timeframe) {
+        const primary = document.getElementById("indicator-chart");
+        const secondary = document.getElementById("indicator-chart-secondary");
+        if (document.getElementById("indicator-select").value === "NONE") {
+            Plotly.purge(primary);
+            Plotly.purge(secondary);
+            primary.style.height = "40px";
+            secondary.style.display = "none";
+            return;
+        }
+        drawMacdPanel("indicator-chart", timeframe);
+        const higherTimeframe = {D: "W", W: "M", M: null}[timeframe];
+        if (higherTimeframe) {
+            drawMacdPanel("indicator-chart-secondary", higherTimeframe);
+        } else {
+            Plotly.purge(secondary);
+            secondary.style.display = "none";
+        }
+    }
+
+
+    function initialDateRange(candles, timeframe, compact = false) {
+
+        if (!candles.length) {
+            return undefined;
+        }
+
+        const startIndex = Math.max(
+            0,
+            candles.length - visibleCandleCount(timeframe, compact)
+        );
+
+        return [
+            candles[startIndex].date,
+            candles[candles.length - 1].date
+        ];
+    }
 
 
     function drawChart(timeframe) {
@@ -325,6 +694,17 @@
             },
 
             xaxis: {
+                type: "date",
+                range: initialDateRange(
+                    candles,
+                    timeframe
+                ),
+                showspikes: true,
+                spikecolor: "#667085",
+                spikethickness: 1,
+                spikedash: "dot",
+                spikemode: "across",
+                spikesnap: "cursor",
                 rangeslider: {
                     visible: false
                 }
@@ -333,14 +713,24 @@
             yaxis: {
                 title: "Price",
                 fixedrange: false,
-                domain: [0.28, 1]
+                domain: [0.28, 1],
+                range: candlePriceRange(candles, timeframe),
+                rangemode: "nonnegative",
+                minallowed: 0,
+                showspikes: true,
+                spikecolor: "#667085",
+                spikethickness: 1,
+                spikedash: "dot",
+                spikemode: "across",
+                spikesnap: "cursor"
             },
 
             yaxis2: {
                 title: "Volume",
                 domain: [0, 0.20],
                 fixedrange: false,
-                rangemode: "tozero"
+                rangemode: "tozero",
+                range: candleVolumeRange(candles, timeframe)
             },
 
             margin: {
@@ -350,7 +740,15 @@
                 b: 50
             },
 
-            dragmode: "pan"
+            dragmode: "pan",
+            shapes: sharedDrawingShapes(candles, timeframe).concat(savedTrendlines(timeframe)),
+            newshape: {
+                line: {color: "#7f56d9", width: 2}
+            },
+            hovermode: "x unified",
+            hoverdistance: -1,
+            spikedistance: -1,
+            hoverlabel: {bgcolor: "#101828", font: {color: "white"}}
         };
 
 
@@ -360,7 +758,8 @@
 
             scrollZoom: true,
 
-            displaylogo: false
+            displaylogo: false,
+            modeBarButtonsToAdd: ["drawline", "eraseshape"]
         };
 
 
@@ -370,6 +769,28 @@
             layout,
             config
         );
+
+        const chartElement = document.getElementById("chart");
+        if (chartElement.removeAllListeners) {
+            chartElement.removeAllListeners("plotly_relayout");
+        }
+        chartElement.on("plotly_relayout", event => {
+            if (Object.keys(event).some(key => key === "shapes" || key.startsWith("shapes["))) {
+                if (managedDrawingMode) {
+                    captureManagedShape(chartElement);
+                    return;
+                }
+                rememberTrendlines(timeframe, chartElement);
+            }
+            const indicatorUpdate = {};
+            if (event["xaxis.range[0]"]) indicatorUpdate["xaxis.range[0]"] = event["xaxis.range[0]"];
+            if (event["xaxis.range[1]"]) indicatorUpdate["xaxis.range[1]"] = event["xaxis.range[1]"];
+            if (event["xaxis.autorange"]) indicatorUpdate["xaxis.autorange"] = true;
+            if (Object.keys(indicatorUpdate).length && document.getElementById("indicator-select").value !== "NONE") {
+                Plotly.relayout("indicator-chart", indicatorUpdate);
+            }
+        });
+        drawIndicator(timeframe);
     }
 
 
@@ -400,6 +821,10 @@
             .getElementById(
                 "single-chart-container"
             )
+            .classList.remove("hidden");
+
+        document
+            .getElementById("indicator-panel")
             .classList.remove("hidden");
 
 
@@ -486,6 +911,18 @@
             },
 
             xaxis: {
+                type: "date",
+                range: initialDateRange(
+                    candles,
+                    timeframe,
+                    true
+                ),
+                showspikes: true,
+                spikecolor: "#667085",
+                spikethickness: 1,
+                spikedash: "dot",
+                spikemode: "across",
+                spikesnap: "cursor",
                 rangeslider: {
                     visible: false
                 }
@@ -493,13 +930,23 @@
 
             yaxis: {
                 title: "Price",
-                domain: [0.30, 1]
+                domain: [0.30, 1],
+                range: candlePriceRange(candles, timeframe, true),
+                rangemode: "nonnegative",
+                minallowed: 0,
+                showspikes: true,
+                spikecolor: "#667085",
+                spikethickness: 1,
+                spikedash: "dot",
+                spikemode: "across",
+                spikesnap: "cursor"
             },
 
             yaxis2: {
                 title: "Volume",
                 domain: [0, 0.20],
-                rangemode: "tozero"
+                rangemode: "tozero",
+                range: candleVolumeRange(candles, timeframe, true)
             },
 
             margin: {
@@ -511,7 +958,13 @@
 
             dragmode: "pan",
 
-            showlegend: false
+            shapes: sharedDrawingShapes(candles, timeframe, true),
+
+            showlegend: false,
+            hovermode: "x unified",
+            hoverdistance: -1,
+            spikedistance: -1,
+            hoverlabel: {bgcolor: "#101828", font: {color: "white"}}
         };
 
 
@@ -531,6 +984,8 @@
             layout,
             config
         );
+
+        drawMacdPanel("macd-mtf-" + timeframe, timeframe, true);
     }
 
     function showMTF() {
@@ -568,6 +1023,10 @@
             )
             .classList.remove("hidden");
 
+        document
+            .getElementById("indicator-panel")
+            .classList.add("hidden");
+
 
         drawMTFChart("D");
         drawMTFChart("W");
@@ -575,7 +1034,9 @@
     }
 
 
-    drawChart("D");
+    loadSharedDrawings()
+        .catch(() => setDrawingStatus("Saved drawings could not be loaded."))
+        .finally(() => drawChart("D"));
 
 </script>
 

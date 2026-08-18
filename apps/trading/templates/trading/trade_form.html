@@ -1,0 +1,31 @@
+{% extends "trading/base.html" %}
+{% block title %}Record Trade{% endblock %}
+{% block content %}
+<div class="actions"><div><h1 style="margin:0">Record trade</h1><span class="muted">The setup data is frozen when this form is saved.</span></div><a class="button secondary" style="margin-left:auto" href="{% url 'trading:trade_list' %}">Cancel</a></div>
+<form method="post" enctype="multipart/form-data" class="panel">{% csrf_token %}
+    {{ form.non_field_errors }}
+    <div class="grid">
+        {% for field in form %}<div><label for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field.errors }}{{ field }}{% if field.help_text %}<div class="helptext">{{ field.help_text }}</div>{% endif %}</div>{% endfor %}
+    </div>
+    <div class="metrics" style="margin:18px 0">
+        <div class="metric"><small>Risk per share</small><strong id="risk-per-share">—</strong></div>
+        <div class="metric"><small>Planned risk</small><strong id="planned-risk">—</strong></div>
+        <div class="metric"><small>Risk-based quantity</small><strong id="risk-quantity">—</strong></div>
+        <div class="metric"><small>Reward:risk</small><strong id="reward-risk">—</strong></div>
+    </div>
+    <button type="submit">Save trade and freeze snapshot</button>
+</form>
+<script>
+function number(id) { const value = parseFloat(document.getElementById(id)?.value); return Number.isFinite(value) ? value : null; }
+function updateRisk() {
+    const entry = number('id_entry_price'), stop = number('id_stop_price'), target = number('id_target_price');
+    const quantity = number('id_quantity'), maximum = number('id_maximum_risk');
+    const risk = entry !== null && stop !== null ? Math.abs(entry - stop) : null;
+    document.getElementById('risk-per-share').textContent = risk ? risk.toFixed(2) : '—';
+    document.getElementById('planned-risk').textContent = risk && quantity ? (risk * quantity).toFixed(2) : '—';
+    document.getElementById('risk-quantity').textContent = risk && maximum ? Math.floor(maximum / risk) : '—';
+    document.getElementById('reward-risk').textContent = risk && target !== null && entry !== null ? (Math.abs(target - entry) / risk).toFixed(2) : '—';
+}
+document.querySelectorAll('input').forEach(input => input.addEventListener('input', updateRisk)); updateRisk();
+</script>
+{% endblock %}

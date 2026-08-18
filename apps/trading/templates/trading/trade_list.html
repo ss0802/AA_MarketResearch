@@ -1,0 +1,18 @@
+{% extends "trading/base.html" %}
+{% block title %}Trade Journal{% endblock %}
+{% block content %}
+<div class="actions"><div><h1 style="margin:0">Trade Journal</h1><span class="muted">Plans, executions and immutable setup records</span></div><a class="button" style="margin-left:auto" href="{% url 'trading:trade_create' %}">Record trade</a></div>
+<div class="panel" style="overflow:auto">
+<table>
+    <thead><tr><th>Date</th><th>Symbol</th><th>Side</th><th>Status</th><th>Entry</th><th>Stop</th><th>Qty</th><th>Risk</th><th>Net P&amp;L</th><th>R</th></tr></thead>
+    <tbody>
+    {% for trade in trades %}<tr>
+        <td><a href="{% url 'trading:trade_detail' trade.pk %}">{{ trade.entry_at|date:"d M Y H:i" }}</a></td>
+        <td>{{ trade.symbol.market }}:{{ trade.symbol.symbol }}</td><td>{{ trade.get_side_display }}</td><td>{{ trade.get_status_display }}</td>
+        <td>{{ trade.entry_price|floatformat:2 }}</td><td>{{ trade.stop_price|floatformat:2 }}</td><td>{{ trade.quantity }}</td>
+        <td>{{ trade.planned_risk|floatformat:2 }}</td><td>{{ trade.net_pnl|floatformat:2|default:"—" }}</td><td>{{ trade.r_multiple|floatformat:2|default:"—" }}</td>
+    </tr>{% empty %}<tr><td colspan="10">No trades yet. Record the first trade to begin the review history.</td></tr>{% endfor %}
+    </tbody>
+</table>
+</div>
+{% endblock %}

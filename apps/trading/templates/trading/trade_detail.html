@@ -1,0 +1,25 @@
+{% extends "trading/base.html" %}
+{% block title %}{{ trade.symbol.symbol }} Trade{% endblock %}
+{% block content %}
+<div class="actions"><div><h1 style="margin:0">{{ trade.symbol.symbol }} · {{ trade.get_side_display }}</h1><span class="muted">{{ trade.entry_at|date:"d M Y H:i" }} · {{ trade.get_status_display }}</span></div><a class="button secondary" style="margin-left:auto" href="{% url 'trading:trade_list' %}">All trades</a></div>
+<div class="panel metrics">
+    <div class="metric"><small>Entry</small><strong>{{ trade.entry_price|floatformat:2 }}</strong></div>
+    <div class="metric"><small>Stop</small><strong>{{ trade.stop_price|floatformat:2 }}</strong></div>
+    <div class="metric"><small>Quantity</small><strong>{{ trade.quantity }}</strong></div>
+    <div class="metric"><small>Planned risk</small><strong>{{ trade.planned_risk|floatformat:2 }}</strong></div>
+    <div class="metric"><small>Net P&amp;L</small><strong>{{ trade.net_pnl|floatformat:2|default:"—" }}</strong></div>
+    <div class="metric"><small>R multiple</small><strong>{{ trade.r_multiple|floatformat:2|default:"—" }}</strong></div>
+</div>
+{% with snapshot=trade.setup_snapshot %}
+<div class="panel"><h2>Frozen setup</h2><p><strong>Data as of:</strong> {{ snapshot.data_as_of_date|default:"No technical date available" }}</p><p><strong>Setup:</strong> {{ trade.setup_name|default:"—" }}</p><p><strong>Filters:</strong> {{ snapshot.screener_context.raw|linebreaksbr|default:"—" }}</p><p><strong>Snapshot hash:</strong><br><code>{{ snapshot.payload_hash }}</code></p>{% if snapshot.chart_image %}<p><a href="{{ snapshot.chart_image.url }}">Open uploaded chart image</a></p>{% endif %}</div>
+<div class="panel"><h2>Entry quality</h2><div class="metrics">
+    <div class="metric"><small>Stop distance</small><strong>{{ snapshot.entry_quality.risk_per_share|floatformat:2 }}</strong></div>
+    <div class="metric"><small>Stop %</small><strong>{{ snapshot.entry_quality.stop_percent|floatformat:2 }}%</strong></div>
+    <div class="metric"><small>Stop in ATR</small><strong>{{ snapshot.entry_quality.stop_atr_units|floatformat:2|default:"—" }}</strong></div>
+    <div class="metric"><small>Entry vs previous high</small><strong>{{ snapshot.entry_quality.previous_high.percent|floatformat:2|default:"—" }}%</strong></div>
+    <div class="metric"><small>Entry vs SMA20</small><strong>{{ snapshot.entry_quality.sma20.percent|floatformat:2|default:"—" }}%</strong></div>
+    <div class="metric"><small>Entry vs BB upper</small><strong>{{ snapshot.entry_quality.bb20_upper.percent|floatformat:2|default:"—" }}%</strong></div>
+</div></div>
+{% endwith %}
+<div class="panel"><h2>Review</h2><p><strong>Thesis:</strong><br>{{ trade.thesis|linebreaksbr|default:"—" }}</p><p><strong>Notes:</strong><br>{{ trade.review_notes|linebreaksbr|default:"—" }}</p></div>
+{% endblock %}

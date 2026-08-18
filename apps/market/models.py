@@ -274,3 +274,45 @@ class TechnicalSnapshot(models.Model):
             models.Index(fields=["timeframe", "momentum"], name="technical_tf_momentum_idx"),
             models.Index(fields=["timeframe", "is_squeeze"], name="technical_tf_squeeze_idx"),
         ]
+
+
+class ChartDrawing(models.Model):
+    class DrawingType(models.TextChoices):
+        HORIZONTAL = "HORIZONTAL", "Horizontal level"
+        TREND_RAY = "TREND_RAY", "Trend ray"
+        PARALLEL_CHANNEL = "PARALLEL_CHANNEL", "Parallel channel"
+
+    symbol = models.ForeignKey(Symbol, on_delete=models.CASCADE, related_name="chart_drawings")
+    drawing_type = models.CharField(max_length=20, choices=DrawingType.choices)
+    source_timeframe = models.CharField(max_length=1, choices=OHLCV.Timeframe.choices)
+    points = models.JSONField(default=list)
+    label = models.CharField(max_length=100, blank=True)
+    color = models.CharField(max_length=20, default="#7f56d9")
+    line_width = models.PositiveSmallIntegerField(default=2)
+    is_visible = models.BooleanField(default=True)
+    is_locked = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["created_at", "id"]
+        indexes = [
+            models.Index(fields=["symbol", "is_visible"], name="drawing_symbol_visible_idx"),
+        ]
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+
+        required = {
+            self.DrawingType.HORIZONTAL: 1,
+            self.DrawingType.TREND_RAY: 2,
+            self.DrawingType.PARALLEL_CHANNEL: 3,
+        }[self.drawing_type]
+        if not isinstance(self.points, list) or len(self.points) != required:
+            raise ValidationError({"points": f"{self.get_drawing_type_display()} requires {required} point(s)."})
+        for point in self.points:
+            if not isinstance(point, dict) or "date" not in point or "price" not in point:
+                raise ValidationError({"points": "Each point requires a date and price."})
+
+    def __str__(self):
+        return f"{self.symbol.symbol} {self.get_drawing_type_display()}"

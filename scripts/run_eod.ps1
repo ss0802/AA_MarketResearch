@@ -17,13 +17,23 @@ Set-Location -LiteralPath $projectPath
 $startedAt = Get-Date -Format "yyyy-MM-dd HH:mm:ss K"
 "[$startedAt] Starting $Market Tradeable EOD ingestion" | Out-File -FilePath $logPath -Append -Encoding utf8
 
-& $pythonPath manage.py ingest_tradeable --mode eod --market $Market *>> $logPath
+$ErrorActionPreference = "Continue"
+& $pythonPath -u manage.py ingest_tradeable --mode eod --market $Market 2>&1 |
+    ForEach-Object {
+        $_ | Out-File -FilePath $logPath -Append -Encoding utf8
+    }
 $ingestionExitCode = $LASTEXITCODE
+$ErrorActionPreference = "Stop"
 
 if ($ingestionExitCode -eq 0) {
     "[$(Get-Date -Format "yyyy-MM-dd HH:mm:ss K")] Computing $Market technical snapshots" | Out-File -FilePath $logPath -Append -Encoding utf8
-    & $pythonPath manage.py compute_technicals --market $Market *>> $logPath
+    $ErrorActionPreference = "Continue"
+    & $pythonPath -u manage.py compute_technicals --market $Market 2>&1 |
+        ForEach-Object {
+            $_ | Out-File -FilePath $logPath -Append -Encoding utf8
+        }
     $exitCode = $LASTEXITCODE
+    $ErrorActionPreference = "Stop"
 }
 else {
     $exitCode = $ingestionExitCode
