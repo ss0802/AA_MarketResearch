@@ -12,7 +12,7 @@ def process_quote(symbol_code, price, quote_at=None):
     quote_at = quote_at or timezone.now()
     triggered = []
     for alert in PriceAlert.objects.select_related("symbol").filter(
-        is_active=True, symbol__market="US", symbol__symbol=symbol_code.upper()
+        is_active=True, status=PriceAlert.Status.ACTIVE, symbol__market="US", symbol__symbol=symbol_code.upper()
     ):
         previous = alert.last_price
         crossed = previous is not None and (
@@ -23,8 +23,9 @@ def process_quote(symbol_code, price, quote_at=None):
         alert.last_quote_at = quote_at
         if crossed:
             alert.is_active = False
+            alert.status = PriceAlert.Status.TRIGGERED
             alert.triggered_at = timezone.now()
-        alert.save(update_fields=["last_price", "last_quote_at", "is_active", "triggered_at"])
+        alert.save(update_fields=["last_price", "last_quote_at", "is_active", "status", "triggered_at"])
         if crossed:
             event = AlertEvent.objects.create(alert=alert, price=price, quote_at=quote_at)
             if alert.notify_telegram:

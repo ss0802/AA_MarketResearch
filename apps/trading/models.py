@@ -112,10 +112,17 @@ class PriceAlert(models.Model):
         ABOVE = "ABOVE", "Crosses above"
         BELOW = "BELOW", "Crosses below"
 
+    class Status(models.TextChoices):
+        ACTIVE = "ACTIVE", "Active"
+        PAUSED = "PAUSED", "Paused"
+        TRIGGERED = "TRIGGERED", "Triggered"
+        ARCHIVED = "ARCHIVED", "Archived"
+
     symbol = models.ForeignKey(Symbol, on_delete=models.CASCADE, related_name="price_alerts")
     direction = models.CharField(max_length=5, choices=Direction.choices)
     target_price = models.DecimalField(max_digits=20, decimal_places=6)
     is_active = models.BooleanField(default=True)
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.ACTIVE)
     notify_in_app = models.BooleanField(default=True)
     notify_telegram = models.BooleanField(default=True)
     notify_desktop = models.BooleanField(default=True)
@@ -130,6 +137,14 @@ class PriceAlert(models.Model):
 
     def __str__(self):
         return f"{self.symbol.market}:{self.symbol.symbol} {self.direction} {self.target_price}"
+
+    def rearm(self):
+        self.status = self.Status.ACTIVE
+        self.is_active = True
+        self.last_price = None
+        self.last_quote_at = None
+        self.triggered_at = None
+        self.save(update_fields=["status", "is_active", "last_price", "last_quote_at", "triggered_at"])
 
 
 class AlertEvent(models.Model):
@@ -146,3 +161,13 @@ class AlertEvent(models.Model):
 
     class Meta:
         ordering = ["-created_at"]
+
+
+class AlertWorkerState(models.Model):
+    name = models.CharField(max_length=30, unique=True, default="tiingo_us")
+    status = models.CharField(max_length=20, default="STOPPED")
+    connected_at = models.DateTimeField(null=True, blank=True)
+    last_heartbeat_at = models.DateTimeField(null=True, blank=True)
+    last_quote_at = models.DateTimeField(null=True, blank=True)
+    last_error = models.TextField(blank=True)
+    updated_at = models.DateTimeField(auto_now=True)

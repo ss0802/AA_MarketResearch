@@ -3,7 +3,7 @@ from django.db import transaction
 from django.shortcuts import get_object_or_404, redirect, render
 
 from .forms import PriceAlertForm, TradeForm
-from .models import AlertEvent, PriceAlert, Trade
+from .models import AlertEvent, AlertWorkerState, PriceAlert, Trade
 from .services import capture_trade_setup
 
 
@@ -32,18 +32,26 @@ def trade_detail(request, pk):
 
 
 def alert_list(request):
-    if request.method == "POST" and request.POST.get("toggle"):
-        alert = get_object_or_404(PriceAlert, pk=request.POST["toggle"])
-        alert.is_active = not alert.is_active
-        alert.save(update_fields=["is_active"])
+    if request.method == "POST" and request.POST.get("alert_id"):
+        alert = get_object_or_404(PriceAlert, pk=request.POST["alert_id"])
+        action = request.POST.get("action")
+        if action == "pause":
+            alert.status, alert.is_active = PriceAlert.Status.PAUSED, False
+            alert.save(update_fields=["status", "is_active"])
+        elif action == "rearm":
+            alert.rearm()
+        elif action == "archive":
+            alert.status, alert.is_active = PriceAlert.Status.ARCHIVED, False
+            alert.save(update_fields=["status", "is_active"])
         return redirect("trading:alert_list")
     form = PriceAlertForm(request.POST or None)
-    if request.method == "POST" and not request.POST.get("toggle") and form.is_valid():
+    if request.method == "POST" and not request.POST.get("alert_id") and form.is_valid():
         form.save()
         messages.success(request, "Price alert saved.")
         return redirect("trading:alert_list")
     return render(request, "trading/alert_list.html", {
         "form": form,
-        "alerts": PriceAlert.objects.select_related("symbol"),
+        "alerts": PriceAlert.objects.select_related("symbol").exclude(status=PriceAlert.Status.ARCHIVED),
         "events": AlertEvent.objects.select_related("alert__symbol")[:25],
+        "worker": AlertWorkerState.objects.filter(name="tiingo_us").first(),
     })
