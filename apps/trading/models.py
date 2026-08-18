@@ -105,3 +105,44 @@ class TradeSetupSnapshot(models.Model):
 
     def __str__(self):
         return f"Snapshot for trade {self.trade_id}"
+
+
+class PriceAlert(models.Model):
+    class Direction(models.TextChoices):
+        ABOVE = "ABOVE", "Crosses above"
+        BELOW = "BELOW", "Crosses below"
+
+    symbol = models.ForeignKey(Symbol, on_delete=models.CASCADE, related_name="price_alerts")
+    direction = models.CharField(max_length=5, choices=Direction.choices)
+    target_price = models.DecimalField(max_digits=20, decimal_places=6)
+    is_active = models.BooleanField(default=True)
+    notify_in_app = models.BooleanField(default=True)
+    notify_telegram = models.BooleanField(default=True)
+    notify_desktop = models.BooleanField(default=True)
+    notify_sound = models.BooleanField(default=True)
+    last_price = models.DecimalField(max_digits=20, decimal_places=6, null=True, blank=True)
+    last_quote_at = models.DateTimeField(null=True, blank=True)
+    triggered_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-is_active", "symbol__market", "symbol__symbol"]
+
+    def __str__(self):
+        return f"{self.symbol.market}:{self.symbol.symbol} {self.direction} {self.target_price}"
+
+
+class AlertEvent(models.Model):
+    alert = models.ForeignKey(PriceAlert, on_delete=models.CASCADE, related_name="events")
+    price = models.DecimalField(max_digits=20, decimal_places=6)
+    quote_at = models.DateTimeField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    telegram_status = models.CharField(max_length=20, default="NOT_REQUESTED")
+    telegram_error = models.TextField(blank=True)
+    desktop_status = models.CharField(max_length=20, default="NOT_REQUESTED")
+    desktop_error = models.TextField(blank=True)
+    sound_status = models.CharField(max_length=20, default="NOT_REQUESTED")
+    sound_error = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]

@@ -2,7 +2,7 @@ from django import forms
 
 from apps.market.models import Symbol
 
-from .models import Trade
+from .models import PriceAlert, Trade
 
 
 class TradeForm(forms.ModelForm):
@@ -54,6 +54,32 @@ class TradeForm(forms.ModelForm):
         instance = super().save(commit=False)
         instance.symbol = self.cleaned_data["symbol_object"]
         instance.full_clean()
+        if commit:
+            instance.save()
+        return instance
+
+
+class PriceAlertForm(forms.ModelForm):
+    market = forms.ChoiceField(choices=Symbol.Market.choices, initial=Symbol.Market.US)
+    symbol_code = forms.CharField(max_length=20, label="Symbol")
+
+    class Meta:
+        model = PriceAlert
+        fields = ["direction", "target_price", "notify_in_app", "notify_telegram", "notify_desktop", "notify_sound"]
+
+    def clean(self):
+        cleaned = super().clean()
+        market = cleaned.get("market")
+        code = cleaned.get("symbol_code", "").strip().upper()
+        symbol = Symbol.objects.filter(market=market, symbol=code, is_active=True).first()
+        if not symbol:
+            self.add_error("symbol_code", "No active symbol was found in that market.")
+        cleaned["symbol_object"] = symbol
+        return cleaned
+
+    def save(self, commit=True):
+        instance = super().save(commit=False)
+        instance.symbol = self.cleaned_data["symbol_object"]
         if commit:
             instance.save()
         return instance

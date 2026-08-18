@@ -66,7 +66,7 @@
     <section class="apps">
         <a class="app-card" href="{% url 'market:technical_screener' %}"><h3>Technical Screener</h3><p>Filter daily, weekly and monthly technical conditions.</p></a>
         <a class="app-card" href="{% url 'trading:trade_list' %}"><h3>Trade Journal</h3><p>{{ trade_count }} recorded trade{{ trade_count|pluralize }} · {{ open_trade_count }} open.</p></a>
-        <div class="app-card"><h3>Alerts</h3><p>Planned: saved-screen and price/indicator notifications.</p></div>
+        <a class="app-card" href="{% url 'trading:alert_list' %}"><h3>Alerts</h3><p>Create live price alerts and review notification history.</p></a>
         <div class="app-card"><h3>Backtests</h3><p>Planned: strategy expectancy, drawdown and regime analysis.</p></div>
     </section>
 

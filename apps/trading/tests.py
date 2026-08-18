@@ -7,7 +7,8 @@ from django.urls import reverse
 
 from apps.market.models import OHLCV, Symbol, TechnicalSnapshot
 
-from .models import Trade
+from .models import AlertEvent, PriceAlert, Trade
+from .services_alerts import process_quote
 from .services import capture_trade_setup
 
 
@@ -54,3 +55,15 @@ class TradeJournalTests(TestCase):
     def test_journal_pages_open(self):
         self.assertEqual(self.client.get(reverse("trading:trade_list")).status_code, 200)
         self.assertEqual(self.client.get(reverse("trading:trade_create")).status_code, 200)
+
+    def test_price_alert_crosses_once(self):
+        alert = PriceAlert.objects.create(symbol=self.symbol, direction="ABOVE", target_price=110, notify_telegram=False)
+        process_quote("TEST", 109)
+        self.assertEqual(process_quote("TEST", 111), [])  # India is intentionally not fed by Tiingo.
+        alert.symbol.market = "US"
+        alert.symbol.save(update_fields=["market"])
+        process_quote("TEST", 109)
+        self.assertEqual(len(process_quote("TEST", 111)), 1)
+        self.assertEqual(AlertEvent.objects.count(), 1)
+        alert.refresh_from_db()
+        self.assertFalse(alert.is_active)
