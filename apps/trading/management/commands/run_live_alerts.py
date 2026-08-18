@@ -3,6 +3,7 @@ import json
 import os
 
 import websockets
+from asgiref.sync import sync_to_async
 from django.core.management.base import BaseCommand, CommandError
 from django.utils.dateparse import parse_datetime
 
@@ -40,15 +41,33 @@ class Command(BaseCommand):
         while True:
             try:
                 async with websockets.connect("wss://api.tiingo.com/iex", ping_interval=20) as socket:
-                    await socket.send(json.dumps({"eventName":"subscribe","authorization":token,"eventData":{"thresholdLevel":6,"tickers":symbols}}))
+                    await socket.send(json.dumps({
+                        "eventName": "subscribe",
+                        "authorization": token,
+                        "eventData": {
+                            "authToken": token,
+                            "thresholdLevel": 6,
+                            "tickers": [symbol.lower() for symbol in symbols],
+                        },
+                    }))
                     self.stdout.write(self.style.SUCCESS("Connected to Tiingo live reference prices."))
                     async for raw in socket:
                         message = json.loads(raw)
+                        if message.get("messageType") == "E":
+                            self.stderr.write(f"Tiingo rejected the subscription: {message}")
+                            return
                         if message.get("messageType") != "A":
+                            self.stdout.write(f"Tiingo message: {message}")
                             continue
                         data = message.get("data") or []
                         if len(data) >= 3:
-                            process_quote(str(data[1]), data[2], parse_datetime(data[0]))
+                            await sync_to_async(process_quote, thread_sensitive=True)(
+                                str(data[1]), data[2], parse_datetime(data[0])
+                            )
+                    self.stderr.write(
+                        f"Tiingo closed the connection: code={socket.close_code} "
+                        f"reason={socket.close_reason or 'not supplied'}"
+                    )
             except KeyboardInterrupt:
                 return
             except Exception as exc:
