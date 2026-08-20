@@ -1,0 +1,6 @@
+.site-nav { min-height:54px; margin:0; padding:0 24px; background:#101828; display:flex; align-items:center; gap:24px; position:relative; z-index:20; }
+.site-brand { color:#fff !important; font-size:18px; font-weight:700; text-decoration:none; margin-right:auto; }
+.site-links { display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+.site-links a { color:#d0d5dd !important; text-decoration:none; padding:9px 12px; border-radius:6px; font-weight:600; }
+.site-links a:hover,.site-links a.active { background:#344054; color:#fff !important; }
+@media(max-width:700px){.site-nav{padding:10px 12px;align-items:flex-start;flex-direction:column;gap:8px}.site-links{width:100%}.site-links a{padding:7px 9px}}

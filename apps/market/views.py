@@ -39,12 +39,12 @@ def dashboard(request):
             current_bars = OHLCV.objects.filter(
                 symbol__market=market, timeframe=OHLCV.Timeframe.DAILY, date=latest_date,
             ).values("symbol_id").distinct().count()
-        state_counts = {
-            item["status"]: item["count"]
-            for item in OHLCVIngestionState.objects.filter(
-                symbol__market=market, timeframe=OHLCV.Timeframe.DAILY,
-            ).values("status").annotate(count=Count("id"))
-        }
+        states = OHLCVIngestionState.objects.filter(
+            symbol__market=market, timeframe=OHLCV.Timeframe.DAILY,
+        )
+        yahoo_success = states.filter(provider="yahoo", status="SUCCESS").values("symbol_id").distinct().count()
+        yahoo_failed = states.filter(provider="yahoo", status="FAILED").values("symbol_id").distinct().count()
+        tiingo_success = states.filter(provider="tiingo", status="SUCCESS").values("symbol_id").distinct().count()
         latest_technical = TechnicalSnapshot.objects.filter(
             symbol__market=market, timeframe=OHLCV.Timeframe.DAILY,
         ).aggregate(value=Max("as_of_date"))["value"]
@@ -63,8 +63,9 @@ def dashboard(request):
             "latest_date": latest_date,
             "current_bars": current_bars,
             "coverage_pct": (current_bars / total * 100) if total else 0,
-            "success": state_counts.get("SUCCESS", 0),
-            "failed": state_counts.get("FAILED", 0),
+            "yahoo_success": yahoo_success,
+            "yahoo_failed": yahoo_failed,
+            "tiingo_success": tiingo_success,
             "technical_date": latest_technical,
             "technical_count": technical_count,
         })

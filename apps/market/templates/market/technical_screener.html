@@ -1,9 +1,10 @@
-<!DOCTYPE html>
+{% load static %}<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Technical Screener | AA MarketResearch</title>
+    <link rel="stylesheet" href="{% static 'market/site.css' %}">
     <style>
         body { margin: 0; font-family: Arial, sans-serif; background: #f4f6f8; color: #20252b; }
         .container { max-width: 1800px; margin: auto; padding: 24px; }
@@ -33,6 +34,7 @@
     </style>
 </head>
 <body>
+{% include "partials/site_nav.html" %}
 <div class="container">
     <h1>Technical Screener</h1>
     <div class="subtitle">Current Tradeable-universe technical snapshots</div>

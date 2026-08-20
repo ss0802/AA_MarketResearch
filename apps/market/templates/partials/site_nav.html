@@ -1,0 +1,10 @@
+<nav class="site-nav">
+    <a class="site-brand" href="{% url 'market:dashboard' %}">AA MarketResearch</a>
+    <div class="site-links">
+        <a class="{% if request.resolver_match.url_name == 'dashboard' %}active{% endif %}" href="{% url 'market:dashboard' %}">Dashboard</a>
+        <a class="{% if request.resolver_match.url_name == 'technical_screener' %}active{% endif %}" href="{% url 'market:technical_screener' %}">Screener</a>
+        <a class="{% if request.resolver_match.url_name == 'alert_list' %}active{% endif %}" href="{% url 'trading:alert_list' %}">Alerts</a>
+        <a class="{% if request.resolver_match.namespace == 'trading' and request.resolver_match.url_name != 'alert_list' %}active{% endif %}" href="{% url 'trading:trade_list' %}">Journal</a>
+        <a href="/admin/">Admin</a>
+    </div>
+</nav>

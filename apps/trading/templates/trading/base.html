@@ -1,9 +1,10 @@
-<!DOCTYPE html>
+{% load static %}<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}Trade Journal{% endblock %} | AA MarketResearch</title>
+    <link rel="stylesheet" href="{% static 'market/site.css' %}">
     <style>
         body { margin: 0; font-family: Arial, sans-serif; background: #f4f6f8; color: #20252b; }
         nav { background: #101828; padding: 13px 24px; display: flex; gap: 20px; align-items: center; }
@@ -28,7 +29,7 @@
     </style>
 </head>
 <body>
-<nav><strong>AA MarketResearch</strong><a href="{% url 'market:technical_screener' %}">Screener</a><a href="{% url 'trading:alert_list' %}">Alerts</a><a href="{% url 'trading:trade_list' %}">Journal</a></nav>
+{% include "partials/site_nav.html" %}
 <main class="container">
     {% for message in messages %}<div class="message">{{ message }}</div>{% endfor %}
     {% block content %}{% endblock %}

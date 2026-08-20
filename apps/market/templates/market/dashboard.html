@@ -1,9 +1,10 @@
-<!DOCTYPE html>
+{% load static %}<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Dashboard | AA MarketResearch</title>
+    <link rel="stylesheet" href="{% static 'market/site.css' %}">
     <style>
         :root { --navy:#101828; --blue:#175cd3; --green:#027a48; --red:#b42318; --muted:#667085; --line:#eaecf0; }
         * { box-sizing: border-box; }
@@ -43,7 +44,8 @@
     </style>
 </head>
 <body>
-<header><div class="header-inner"><h1>AA MarketResearch</h1><div class="subtitle">Research, screen, plan and review from one place</div><nav><a href="{% url 'market:technical_screener' %}">Technical Screener</a><a href="{% url 'trading:trade_list' %}">Trade Journal</a><a href="/admin/">Database Admin</a></nav></div></header>
+{% include "partials/site_nav.html" %}
+<header><div class="header-inner"><h1>AA MarketResearch</h1><div class="subtitle">Research, screen, plan and review from one place</div></div></header>
 <main class="container">
     <form class="panel search" method="get"><select name="market"><option value="IND">India</option><option value="US">United States</option></select><input name="symbol" placeholder="Open a symbol, e.g. SUVEN or AAOI" autocomplete="off"><button type="submit">Open chart</button></form>
     {% if search_error %}<div class="error">{{ search_error }}</div>{% endif %}
@@ -55,8 +57,9 @@
             <div class="metric"><small>Tradeable</small><strong>{{ card.tradeable }}</strong></div>
             <div class="metric"><small>Latest bars</small><strong>{{ card.current_bars }}</strong></div>
             <div class="metric"><small>Coverage</small><strong>{{ card.coverage_pct|floatformat:1 }}%</strong></div>
-            <div class="metric"><small>Ingestion success</small><strong class="good">{{ card.success }}</strong></div>
-            <div class="metric"><small>Known failures</small><strong class="{% if card.failed %}bad{% else %}good{% endif %}">{{ card.failed }}</strong></div>
+            <div class="metric"><small>Yahoo success</small><strong class="good">{{ card.yahoo_success }}</strong></div>
+            <div class="metric"><small>Yahoo failures</small><strong class="{% if card.yahoo_failed %}bad{% else %}good{% endif %}">{{ card.yahoo_failed }}</strong></div>
+            {% if card.tiingo_success %}<div class="metric"><small>Tiingo pilot</small><strong class="good">{{ card.tiingo_success }}</strong></div>{% endif %}
             <div class="metric"><small>Technicals {{ card.technical_date|default:"" }}</small><strong>{{ card.technical_count }}</strong></div>
         </div>
         <div class="coverage"><span style="width:{{ card.coverage_pct|stringformat:'.1f' }}%"></span></div>
