@@ -37,6 +37,8 @@ class Command(BaseCommand):
             help="Retry only instruments whose selected-provider daily ingestion failed.",
         )
         parser.add_argument("--sleep", type=float, default=0.25, help="Seconds between provider calls.")
+        parser.add_argument("--retries", type=int, default=0, help="Retries after a provider/validation failure.")
+        parser.add_argument("--retry-wait", type=float, default=2.0, help="Initial retry delay in seconds.")
         parser.add_argument("--fail-fast", action="store_true")
 
     def handle(self, *args, **options):
@@ -59,6 +61,8 @@ class Command(BaseCommand):
             if options["limit"] < 1:
                 raise CommandError("--limit must be positive")
             queryset = queryset[: options["limit"]]
+        if options["retries"] < 0 or options["retry_wait"] < 0:
+            raise CommandError("--retries and --retry-wait cannot be negative")
 
         instruments = list(queryset)
         if not instruments:
@@ -90,18 +94,16 @@ class Command(BaseCommand):
             state.last_error = ""
             state.save(update_fields=["status", "last_attempt_at", "last_error"])
             try:
-                if provider_name == "tiingo":
-                    end_date = timezone.localdate()
-                    start_date = end_date - timedelta(days=3653 if mode == "backfill" else 35)
-                    raw = provider.get_daily_ohlcv(
-                        provider_code,
-                        start_date=start_date,
-                        end_date=end_date,
-                    )
-                else:
-                    raw = provider.get_daily_ohlcv(provider_code, period=period)
-                daily = normalize_ohlcv(raw, symbol=instrument.symbol, timeframe="D")
-                validate_ohlcv(daily)
+                daily = self._fetch_daily(
+                    provider=provider,
+                    provider_name=provider_name,
+                    provider_code=provider_code,
+                    instrument=instrument,
+                    mode=mode,
+                    period=period,
+                    retries=options["retries"],
+                    retry_wait=options["retry_wait"],
+                )
                 daily_stats = ingest_ohlcv(daily, symbol_instance=instrument)
                 aggregate_stats = self._aggregate(instrument, mode)
                 state.status = OHLCVIngestionState.Status.SUCCESS
@@ -131,6 +133,28 @@ class Command(BaseCommand):
                 time.sleep(options["sleep"])
 
         self.stdout.write(self.style.SUCCESS(f"Completed: {totals}"))
+
+    def _fetch_daily(self, provider, provider_name, provider_code, instrument, mode, period, retries, retry_wait):
+        for attempt in range(retries + 1):
+            try:
+                if provider_name == "tiingo":
+                    end_date = timezone.localdate()
+                    start_date = end_date - timedelta(days=3653 if mode == "backfill" else 35)
+                    raw = provider.get_daily_ohlcv(provider_code, start_date=start_date, end_date=end_date)
+                else:
+                    raw = provider.get_daily_ohlcv(provider_code, period=period)
+                daily = normalize_ohlcv(raw, symbol=instrument.symbol, timeframe="D")
+                validate_ohlcv(daily)
+                return daily
+            except Exception as exc:
+                if attempt >= retries:
+                    raise
+                delay = retry_wait * (2 ** attempt)
+                self.stderr.write(
+                    f"{provider_code}: attempt {attempt + 1} failed ({exc}); retrying in {delay:g}s"
+                )
+                if delay:
+                    time.sleep(delay)
 
     def _aggregate(self, instrument, mode):
         rows = OHLCV.objects.filter(symbol=instrument, timeframe="D")

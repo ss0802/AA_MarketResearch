@@ -14,11 +14,35 @@ $logPath = Join-Path $logDirectory ("eod-" + $Market.ToLower() + "-" + (Get-Date
 New-Item -ItemType Directory -Path $logDirectory -Force | Out-Null
 Set-Location -LiteralPath $projectPath
 
+$now = Get-Date
+if ($Market -eq "IND" -and $now.TimeOfDay -lt [TimeSpan]::FromHours(17.75)) {
+    "[$($now.ToString('yyyy-MM-dd HH:mm:ss K'))] Skipped IND EOD: market-close guard requires 17:45 IST or later" | Out-File -FilePath $logPath -Append -Encoding utf8
+    exit 0
+}
+if ($Market -eq "US" -and $now.TimeOfDay -lt [TimeSpan]::FromHours(5.5)) {
+    "[$($now.ToString('yyyy-MM-dd HH:mm:ss K'))] Skipped US EOD: completion guard requires 05:30 IST or later" | Out-File -FilePath $logPath -Append -Encoding utf8
+    exit 0
+}
+
+$mutex = [System.Threading.Mutex]::new($false, "Local\AA_MarketResearch_EOD")
+$hasMutex = $false
+try {
+    try {
+        $hasMutex = $mutex.WaitOne(0)
+    }
+    catch [System.Threading.AbandonedMutexException] {
+        $hasMutex = $true
+    }
+    if (-not $hasMutex) {
+        "[$($now.ToString('yyyy-MM-dd HH:mm:ss K'))] Skipped $Market EOD: another market ingestion is already running" | Out-File -FilePath $logPath -Append -Encoding utf8
+        exit 0
+    }
+
 $startedAt = Get-Date -Format "yyyy-MM-dd HH:mm:ss K"
 "[$startedAt] Starting $Market Tradeable EOD ingestion" | Out-File -FilePath $logPath -Append -Encoding utf8
 
 $ErrorActionPreference = "Continue"
-& $pythonPath -u manage.py ingest_tradeable --mode eod --market $Market 2>&1 |
+& $pythonPath -u manage.py ingest_tradeable --mode eod --market $Market --retries 2 --retry-wait 2 2>&1 |
     ForEach-Object {
         $_ | Out-File -FilePath $logPath -Append -Encoding utf8
     }
@@ -42,4 +66,11 @@ else {
 
 $finishedAt = Get-Date -Format "yyyy-MM-dd HH:mm:ss K"
 "[$finishedAt] Finished with exit code $exitCode" | Out-File -FilePath $logPath -Append -Encoding utf8
+}
+finally {
+    if ($hasMutex) {
+        $mutex.ReleaseMutex()
+    }
+    $mutex.Dispose()
+}
 exit $exitCode
