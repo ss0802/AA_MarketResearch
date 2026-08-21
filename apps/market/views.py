@@ -1,6 +1,7 @@
 import json
-from datetime import date
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal, InvalidOperation
+from zoneinfo import ZoneInfo
 
 from django.core.serializers.json import DjangoJSONEncoder
 from django.core.paginator import Paginator
@@ -8,23 +9,16 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import Count, F, Max
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.utils import timezone
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_http_methods
 
 from .models import ChartDrawing, OHLCV, OHLCVIngestionState, Symbol, TechnicalSnapshot
 
 
-def dashboard(request):
-    symbol_query = request.GET.get("symbol", "").strip().upper()
-    market_query = request.GET.get("market", "IND")
-    search_error = ""
-    if symbol_query:
-        matches = Symbol.objects.filter(symbol=symbol_query, market=market_query, is_active=True)
-        if matches.exists():
-            return redirect(f"/stocks/{symbol_query}/?market={market_query}")
-        search_error = f"No active {market_query} symbol named {symbol_query} was found."
-
-    market_cards = []
+def _market_health_cards():
+    cards = []
+    ist = ZoneInfo("Asia/Kolkata")
     for market, name in ((Symbol.Market.INDIA, "India"), (Symbol.Market.US, "United States")):
         tradeable_symbols = Symbol.objects.filter(
             market=market,
@@ -39,36 +33,90 @@ def dashboard(request):
             current_bars = OHLCV.objects.filter(
                 symbol__market=market, timeframe=OHLCV.Timeframe.DAILY, date=latest_date,
             ).values("symbol_id").distinct().count()
-        states = OHLCVIngestionState.objects.filter(
-            symbol__market=market, timeframe=OHLCV.Timeframe.DAILY,
-        )
-        yahoo_success = states.filter(provider="yahoo", status="SUCCESS").values("symbol_id").distinct().count()
-        yahoo_failed = states.filter(provider="yahoo", status="FAILED").values("symbol_id").distinct().count()
-        tiingo_success = states.filter(provider="tiingo", status="SUCCESS").values("symbol_id").distinct().count()
+        states = OHLCVIngestionState.objects.filter(symbol__market=market, timeframe="D")
+        running_count = states.filter(
+            status=OHLCVIngestionState.Status.RUNNING,
+            last_attempt_at__gte=timezone.now() - timedelta(minutes=30),
+        ).values("symbol_id").distinct().count()
         latest_technical = TechnicalSnapshot.objects.filter(
-            symbol__market=market, timeframe=OHLCV.Timeframe.DAILY,
+            symbol__market=market, timeframe="D",
         ).aggregate(value=Max("as_of_date"))["value"]
-        technical_count = 0
-        if latest_technical:
-            technical_count = TechnicalSnapshot.objects.filter(
-                symbol__market=market,
-                timeframe=OHLCV.Timeframe.DAILY,
-                as_of_date=latest_technical,
-            ).count()
+        technical_count = TechnicalSnapshot.objects.filter(
+            symbol__market=market, timeframe="D", as_of_date=latest_technical,
+        ).count() if latest_technical else 0
         total = tradeable_symbols.count()
-        market_cards.append({
-            "market": market,
-            "name": name,
-            "tradeable": total,
-            "latest_date": latest_date,
-            "current_bars": current_bars,
-            "coverage_pct": (current_bars / total * 100) if total else 0,
-            "yahoo_success": yahoo_success,
-            "yahoo_failed": yahoo_failed,
-            "tiingo_success": tiingo_success,
-            "technical_date": latest_technical,
-            "technical_count": technical_count,
+        coverage = (current_bars / total * 100) if total else 0
+        finalization_cutoff = None
+        finalized_bars = 0
+        if latest_date:
+            cutoff_date = latest_date if market == Symbol.Market.INDIA else latest_date + timedelta(days=1)
+            cutoff_time = time(17, 45) if market == Symbol.Market.INDIA else time(5, 30)
+            finalization_cutoff = datetime.combine(cutoff_date, cutoff_time, tzinfo=ist)
+            finalized_bars = states.filter(
+                status=OHLCVIngestionState.Status.SUCCESS,
+                last_bar_date=latest_date,
+                last_success_at__gte=finalization_cutoff,
+            ).values("symbol_id").distinct().count()
+        finalized_coverage = (finalized_bars / total * 100) if total else 0
+        technical_coverage = (technical_count / total * 100) if total else 0
+        technical_aligned = latest_technical == latest_date
+        ready = (
+            coverage >= 98
+            and finalized_coverage >= 98
+            and technical_coverage >= 98
+            and technical_aligned
+        )
+        if running_count:
+            certificate = "updating"
+        elif coverage >= 98 and finalized_coverage < 98:
+            certificate = "preliminary"
+        elif ready:
+            certificate = "ready"
+        else:
+            certificate = "attention"
+        diagnostics = []
+        if coverage < 98:
+            diagnostics.append("Latest-session coverage is below 98%.")
+        if coverage >= 98 and finalized_coverage < 98:
+            diagnostics.append("Most candles were not confirmed by a successful post-close ingestion.")
+        if not technical_aligned:
+            diagnostics.append("Technical snapshots do not match the latest EOD date.")
+        elif technical_coverage < 98:
+            diagnostics.append("Technical-snapshot coverage is below 98%.")
+        if states.filter(status=OHLCVIngestionState.Status.FAILED).exists():
+            diagnostics.append("Known provider failures require review.")
+        cards.append({
+            "market": market, "name": name, "tradeable": total,
+            "latest_date": latest_date, "current_bars": current_bars,
+            "coverage_pct": coverage,
+            "yahoo_success": states.filter(provider="yahoo", status="SUCCESS").values("symbol_id").distinct().count(),
+            "yahoo_failed": states.filter(provider="yahoo", status="FAILED").values("symbol_id").distinct().count(),
+            "tiingo_success": states.filter(provider="tiingo", status="SUCCESS").values("symbol_id").distinct().count(),
+            "technical_date": latest_technical, "technical_count": technical_count,
+            "technical_coverage_pct": technical_coverage,
+            "running_count": running_count,
+            "updating": running_count > 0,
+            "finalized_bars": finalized_bars,
+            "finalized_coverage_pct": finalized_coverage,
+            "finalization_cutoff": finalization_cutoff,
+            "certificate": certificate,
+            "diagnostics": diagnostics,
+            "ready": ready,
         })
+    return cards
+
+
+def dashboard(request):
+    symbol_query = request.GET.get("symbol", "").strip().upper()
+    market_query = request.GET.get("market", "IND")
+    search_error = ""
+    if symbol_query:
+        matches = Symbol.objects.filter(symbol=symbol_query, market=market_query, is_active=True)
+        if matches.exists():
+            return redirect(f"/stocks/{symbol_query}/?market={market_query}")
+        search_error = f"No active {market_query} symbol named {symbol_query} was found."
+
+    market_cards = _market_health_cards()
 
     from apps.trading.models import Trade
 
@@ -81,6 +129,19 @@ def dashboard(request):
         "recent_trades": trades[:5],
     }
     return render(request, "market/dashboard.html", context)
+
+
+def data_health(request):
+    from apps.trading.models import AlertWorkerState
+    return render(request, "market/data_health.html", {
+        "market_cards": _market_health_cards(),
+        "us_worker": AlertWorkerState.objects.filter(name="tiingo_us").first(),
+        "ind_worker": AlertWorkerState.objects.filter(name="indstocks_ind").first(),
+    })
+
+
+def guide(request):
+    return render(request, "market/guide.html")
 
 
 @ensure_csrf_cookie

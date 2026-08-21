@@ -1,0 +1,21 @@
+{% extends "trading/base.html" %}
+{% block title %}Trade Book{% endblock %}
+{% block content %}
+<div class="actions"><div><h1 style="margin:0">Trade Book</h1><span class="muted">Monitor open positions, current risk and marked-to-market performance</span></div><a class="button secondary" style="margin-left:auto" href="{% url 'trading:trade_list' %}">Open Journal</a></div>
+{% for trade in positions %}
+<section class="panel">
+    <div class="actions"><div><h2 style="margin:0"><a href="{% url 'trading:trade_detail' trade.pk %}">{{ trade.symbol.market }}:{{ trade.symbol.symbol }}</a> · {{ trade.get_side_display }}</h2><span class="muted">Entered {{ trade.entry_at|date:"d M Y, H:i" }} · {{ trade.quantity }} shares</span></div><a class="button secondary" style="margin-left:auto" href="{% url 'market:symbol_detail' trade.symbol.symbol %}?market={{ trade.symbol.market }}">Open chart</a></div>
+    <div class="metrics">
+        <div class="metric"><small>Average entry</small><strong>{{ trade.entry_price|floatformat:2 }}</strong></div>
+        <div class="metric"><small>Current mark</small><strong>{{ trade.monitor_price|floatformat:2|default:"—" }}</strong><br><span class="muted">{{ trade.monitor_source|default:"No price" }} · {{ trade.monitor_time|default:"—" }}</span></div>
+        <div class="metric"><small>Unrealized P&amp;L</small><strong class="{% if trade.unrealized_pnl >= 0 %}positive{% else %}negative{% endif %}">{{ trade.unrealized_pnl|floatformat:2|default:"—" }}</strong></div>
+        <div class="metric"><small>Return</small><strong>{{ trade.return_pct|floatformat:2|default:"—" }}%</strong></div>
+        <div class="metric"><small>Open R</small><strong>{{ trade.open_r|floatformat:2|default:"—" }}R</strong></div>
+        <div class="metric"><small>Initial stop</small><strong>{{ trade.stop_price|floatformat:2 }}</strong></div>
+        <div class="metric"><small>Current stop</small><strong>{{ trade.active_stop_price|floatformat:2 }}</strong><br><span class="muted">{{ trade.stop_r|floatformat:2 }}R if reached</span></div>
+        <div class="metric"><small>Target</small><strong>{{ trade.target_price|floatformat:2|default:"—" }}</strong></div>
+    </div>
+    <form method="post" class="grid" style="margin-top:16px">{% csrf_token %}<input type="hidden" name="trade_id" value="{{ trade.pk }}"><div><label>Update current stop</label><input type="number" step="0.01" name="current_stop" value="{{ trade.active_stop_price }}"></div><div><label>Record manual market price</label><input type="number" step="0.01" name="mark_price" placeholder="Leave blank to keep current mark"></div><div><button type="submit">Update position</button></div></form>
+</section>
+{% empty %}<div class="panel"><p>No open positions. Trades marked Open will appear here.</p></div>{% endfor %}
+{% endblock %}

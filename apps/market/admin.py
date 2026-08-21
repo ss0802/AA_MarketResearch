@@ -1,6 +1,13 @@
 from django.contrib import admin
 
-from .models import ChartDrawing
+from .models import ChartDrawing, ProviderInstrument
+
+
+@admin.register(ProviderInstrument)
+class ProviderInstrumentAdmin(admin.ModelAdmin):
+    list_display = ("symbol", "provider", "exchange_code", "instrument_id", "updated_at")
+    list_filter = ("provider", "exchange_code", "segment")
+    search_fields = ("symbol__symbol", "instrument_id")
 
 
 @admin.register(ChartDrawing)

@@ -4,7 +4,10 @@
         <a class="{% if request.resolver_match.url_name == 'dashboard' %}active{% endif %}" href="{% url 'market:dashboard' %}">Dashboard</a>
         <a class="{% if request.resolver_match.url_name == 'technical_screener' %}active{% endif %}" href="{% url 'market:technical_screener' %}">Screener</a>
         <a class="{% if request.resolver_match.url_name == 'alert_list' %}active{% endif %}" href="{% url 'trading:alert_list' %}">Alerts</a>
-        <a class="{% if request.resolver_match.namespace == 'trading' and request.resolver_match.url_name != 'alert_list' %}active{% endif %}" href="{% url 'trading:trade_list' %}">Journal</a>
+        <a class="{% if request.resolver_match.url_name == 'trade_book' %}active{% endif %}" href="{% url 'trading:trade_book' %}">Trade Book</a>
+        <a class="{% if request.resolver_match.namespace == 'trading' and request.resolver_match.url_name != 'alert_list' and request.resolver_match.url_name != 'trade_book' %}active{% endif %}" href="{% url 'trading:trade_list' %}">Journal</a>
+        <a class="{% if request.resolver_match.url_name == 'guide' %}active{% endif %}" href="{% url 'market:guide' %}">Guide</a>
+        <a class="{% if request.resolver_match.url_name == 'data_health' %}active{% endif %}" href="{% url 'market:data_health' %}">Data Health</a>
         <a href="/admin/">Admin</a>
     </div>
 </nav>

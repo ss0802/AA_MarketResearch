@@ -7,7 +7,7 @@ from django.urls import reverse
 
 from apps.market.models import OHLCV, Symbol, TechnicalSnapshot
 
-from .models import AlertEvent, PriceAlert, Trade
+from .models import AlertEvent, PriceAlert, Trade, TradePositionMark
 from .services_alerts import process_quote
 from .services import capture_trade_setup
 
@@ -56,15 +56,47 @@ class TradeJournalTests(TestCase):
         self.assertEqual(self.client.get(reverse("trading:trade_list")).status_code, 200)
         self.assertEqual(self.client.get(reverse("trading:trade_create")).status_code, 200)
 
+    def test_trade_book_marks_open_position(self):
+        trade = Trade.objects.create(
+            symbol=self.symbol, status=Trade.Status.OPEN,
+            entry_at=datetime.now(timezone.utc), entry_price=100,
+            quantity=10, stop_price=95, current_stop_price=102,
+        )
+        response = self.client.post(reverse("trading:trade_book"), {
+            "trade_id": trade.pk, "current_stop": "103", "mark_price": "110",
+        })
+        self.assertEqual(response.status_code, 302)
+        trade.refresh_from_db()
+        self.assertEqual(trade.current_stop_price, Decimal("103"))
+        self.assertEqual(TradePositionMark.objects.get(trade=trade).price, Decimal("110"))
+        page = self.client.get(reverse("trading:trade_book"))
+        self.assertContains(page, "Trade Book")
+        self.assertContains(page, "100.00")
+        self.assertContains(page, "110.00")
+
+    def test_indstocks_postback_is_safe_placeholder(self):
+        status = self.client.get(reverse("indstocks_postback"))
+        self.assertEqual(status.status_code, 200)
+        self.assertEqual(status.json()["order_processing"], "disabled")
+        postback = self.client.post(
+            reverse("indstocks_postback"), data={"order_id": "ignored"},
+            content_type="application/json",
+        )
+        self.assertEqual(postback.status_code, 202)
+        self.assertEqual(postback.json()["order_processing"], "disabled")
+
     def test_price_alert_crosses_once(self):
         alert = PriceAlert.objects.create(symbol=self.symbol, direction="ABOVE", target_price=110, notify_telegram=False)
         process_quote("TEST", 109)
-        self.assertEqual(process_quote("TEST", 111), [])  # India is intentionally not fed by Tiingo.
+        self.assertEqual(process_quote("TEST", 111), [])  # Default provider market is US.
+        process_quote("TEST", 109, market="IND")
+        self.assertEqual(len(process_quote("TEST", 111, market="IND")), 1)
+        alert.rearm()
         alert.symbol.market = "US"
         alert.symbol.save(update_fields=["market"])
         process_quote("TEST", 109)
         self.assertEqual(len(process_quote("TEST", 111)), 1)
-        self.assertEqual(AlertEvent.objects.count(), 1)
+        self.assertEqual(AlertEvent.objects.count(), 2)
         alert.refresh_from_db()
         self.assertFalse(alert.is_active)
         self.assertEqual(alert.status, PriceAlert.Status.TRIGGERED)

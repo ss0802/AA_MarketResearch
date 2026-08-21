@@ -7,12 +7,13 @@ from django.utils import timezone
 from .models import AlertEvent, PriceAlert
 
 
-def process_quote(symbol_code, price, quote_at=None):
+def process_quote(symbol_code, price, quote_at=None, market="US"):
     price = Decimal(str(price))
     quote_at = quote_at or timezone.now()
     triggered = []
     for alert in PriceAlert.objects.select_related("symbol").filter(
-        is_active=True, status=PriceAlert.Status.ACTIVE, symbol__market="US", symbol__symbol=symbol_code.upper()
+        is_active=True, status=PriceAlert.Status.ACTIVE,
+        symbol__market=market, symbol__symbol=symbol_code.upper()
     ):
         previous = alert.last_price
         crossed = previous is not None and (

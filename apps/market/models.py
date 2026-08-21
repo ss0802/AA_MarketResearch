@@ -140,6 +140,28 @@ class OHLCVIngestionState(models.Model):
         ]
 
 
+class ProviderInstrument(models.Model):
+    symbol = models.ForeignKey(Symbol, on_delete=models.CASCADE, related_name="provider_instruments")
+    provider = models.CharField(max_length=30)
+    instrument_id = models.CharField(max_length=80)
+    exchange_code = models.CharField(max_length=20)
+    segment = models.CharField(max_length=30, blank=True)
+    metadata = models.JSONField(default=dict, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["symbol", "provider"], name="unique_symbol_provider_instrument"
+            ),
+            models.UniqueConstraint(
+                fields=["provider", "exchange_code", "instrument_id"],
+                name="unique_provider_exchange_instrument",
+            ),
+        ]
+        indexes = [models.Index(fields=["provider", "instrument_id"], name="provider_instrument_idx")]
+
+
 
 
 class OHLCV(models.Model):

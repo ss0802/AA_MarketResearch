@@ -1,9 +1,10 @@
 from django.contrib import admin
 
-from .models import AlertEvent, PriceAlert, Trade, TradeSetupSnapshot
+from .models import AlertEvent, PriceAlert, Trade, TradePositionMark, TradeSetupSnapshot
 
 admin.site.register(PriceAlert)
 admin.site.register(AlertEvent)
+admin.site.register(TradePositionMark)
 
 
 @admin.register(Trade)

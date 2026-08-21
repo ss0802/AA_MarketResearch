@@ -25,6 +25,7 @@ class Trade(models.Model):
     entry_price = models.DecimalField(max_digits=20, decimal_places=6)
     quantity = models.PositiveIntegerField()
     stop_price = models.DecimalField(max_digits=20, decimal_places=6)
+    current_stop_price = models.DecimalField(max_digits=20, decimal_places=6, null=True, blank=True)
     target_price = models.DecimalField(max_digits=20, decimal_places=6, null=True, blank=True)
     exit_at = models.DateTimeField(null=True, blank=True)
     exit_price = models.DecimalField(max_digits=20, decimal_places=6, null=True, blank=True)
@@ -61,6 +62,10 @@ class Trade(models.Model):
     @property
     def planned_risk(self):
         return self.risk_per_share * self.quantity
+
+    @property
+    def active_stop_price(self):
+        return self.current_stop_price if self.current_stop_price is not None else self.stop_price
 
     @property
     def gross_pnl(self):
@@ -105,6 +110,23 @@ class TradeSetupSnapshot(models.Model):
 
     def __str__(self):
         return f"Snapshot for trade {self.trade_id}"
+
+
+class TradePositionMark(models.Model):
+    class Source(models.TextChoices):
+        MANUAL = "MANUAL", "Manual"
+        EOD = "EOD", "End of day"
+        LIVE = "LIVE", "Live feed"
+
+    trade = models.ForeignKey(Trade, on_delete=models.CASCADE, related_name="position_marks")
+    price = models.DecimalField(max_digits=20, decimal_places=6)
+    marked_at = models.DateTimeField()
+    source = models.CharField(max_length=10, choices=Source.choices, default=Source.MANUAL)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-marked_at", "-id"]
+        indexes = [models.Index(fields=["trade", "-marked_at"], name="position_mark_trade_idx")]
 
 
 class PriceAlert(models.Model):

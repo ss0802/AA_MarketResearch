@@ -1,15 +1,86 @@
 from django.contrib import messages
+from decimal import Decimal, InvalidOperation
+
 from django.db import transaction
+from django.utils import timezone
 from django.shortcuts import get_object_or_404, redirect, render
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_http_methods
 
 from .forms import PriceAlertForm, TradeForm
-from .models import AlertEvent, AlertWorkerState, PriceAlert, Trade
+from .models import AlertEvent, AlertWorkerState, PriceAlert, Trade, TradePositionMark
 from .services import capture_trade_setup
+
+
+@csrf_exempt
+@require_http_methods(["GET", "POST"])
+def indstocks_postback(request):
+    if request.method == "GET":
+        return JsonResponse({
+            "status": "available",
+            "provider": "INDstocks",
+            "order_processing": "disabled",
+        })
+    # Registration-safe placeholder: deliberately no payload storage or action.
+    return JsonResponse({
+        "status": "accepted",
+        "order_processing": "disabled",
+    }, status=202)
 
 
 def trade_list(request):
     trades = Trade.objects.select_related("symbol").all()
     return render(request, "trading/trade_list.html", {"trades": trades})
+
+
+def trade_book(request):
+    if request.method == "POST":
+        trade = get_object_or_404(Trade, pk=request.POST.get("trade_id"), status=Trade.Status.OPEN)
+        try:
+            if request.POST.get("current_stop"):
+                current_stop = Decimal(request.POST["current_stop"])
+                if current_stop <= 0:
+                    raise ValueError("Stop must be positive.")
+                trade.current_stop_price = current_stop
+                trade.save(update_fields=["current_stop_price", "updated_at"])
+            if request.POST.get("mark_price"):
+                mark_price = Decimal(request.POST["mark_price"])
+                if mark_price <= 0:
+                    raise ValueError("Price must be positive.")
+                TradePositionMark.objects.create(
+                    trade=trade, price=mark_price, marked_at=timezone.now(),
+                    source=TradePositionMark.Source.MANUAL,
+                )
+            messages.success(request, "Open position updated.")
+        except (InvalidOperation, ValueError):
+            messages.error(request, "Enter valid positive prices.")
+        return redirect("trading:trade_book")
+
+    positions = list(
+        Trade.objects.filter(status=Trade.Status.OPEN)
+        .select_related("symbol").prefetch_related("position_marks")
+    )
+    for trade in positions:
+        mark = trade.position_marks.first()
+        if mark is None:
+            candle = trade.symbol.ohlcv.filter(timeframe="D").order_by("-date").first()
+            if candle:
+                trade.monitor_price = candle.close
+                trade.monitor_time = candle.date
+                trade.monitor_source = "EOD"
+        else:
+            trade.monitor_price = mark.price
+            trade.monitor_time = mark.marked_at
+            trade.monitor_source = mark.get_source_display()
+        if hasattr(trade, "monitor_price"):
+            direction = Decimal("1") if trade.side == Trade.Side.LONG else Decimal("-1")
+            trade.unrealized_pnl = (trade.monitor_price - trade.entry_price) * trade.quantity * direction
+            trade.open_r = trade.unrealized_pnl / trade.planned_risk if trade.planned_risk else None
+            trade.return_pct = ((trade.monitor_price - trade.entry_price) / trade.entry_price * 100) * direction
+            stop_pnl = (trade.active_stop_price - trade.entry_price) * trade.quantity * direction
+            trade.stop_r = stop_pnl / trade.planned_risk if trade.planned_risk else None
+    return render(request, "trading/trade_book.html", {"positions": positions})
 
 
 def trade_create(request):
@@ -53,5 +124,6 @@ def alert_list(request):
         "form": form,
         "alerts": PriceAlert.objects.select_related("symbol").exclude(status=PriceAlert.Status.ARCHIVED),
         "events": AlertEvent.objects.select_related("alert__symbol")[:25],
-        "worker": AlertWorkerState.objects.filter(name="tiingo_us").first(),
+        "us_worker": AlertWorkerState.objects.filter(name="tiingo_us").first(),
+        "ind_worker": AlertWorkerState.objects.filter(name="indstocks_ind").first(),
     })
