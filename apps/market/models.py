@@ -39,6 +39,18 @@ class Symbol(models.Model):
         return f"{self.market}:{self.exchange}:{self.symbol}"
 
 
+class WatchlistItem(models.Model):
+    symbol = models.OneToOneField(Symbol, on_delete=models.CASCADE, related_name="watchlist_item")
+    position = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["position", "created_at", "id"]
+
+    def __str__(self):
+        return f"Ticker tape: {self.symbol.market}:{self.symbol.symbol}"
+
+
 class ImportBatch(models.Model):
     class Status(models.TextChoices):
         RUNNING = "RUNNING", "Running"

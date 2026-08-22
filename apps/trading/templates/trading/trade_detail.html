@@ -10,6 +10,11 @@
     <div class="metric"><small>Net P&amp;L</small><strong>{{ trade.net_pnl|floatformat:2|default:"—" }}</strong></div>
     <div class="metric"><small>R multiple</small><strong>{{ trade.r_multiple|floatformat:2|default:"—" }}</strong></div>
 </div>
+<div class="panel"><h2>Plan alerts</h2>
+{% if plan_alerts %}<div class="metrics">{% for alert in plan_alerts %}
+    <div class="metric"><small>{{ alert.get_alert_role_display }}</small><strong>{{ alert.get_direction_display }} {{ alert.target_price|floatformat:2 }}</strong><span class="muted">{{ alert.get_status_display }}{% if alert.alert_role != "ENTRY" and alert.status == "PAUSED" %} · waiting for entry{% endif %}</span></div>
+{% endfor %}</div>{% else %}<p>No alerts were created with this plan.</p><form method="post">{% csrf_token %}<button name="action" value="create_plan_alerts">Create entry, stop and target alerts</button></form>{% endif %}
+<p><a href="{% url 'trading:alert_list' %}">Manage alerts</a></p></div>
 {% with snapshot=trade.setup_snapshot %}
 <div class="panel"><h2>Frozen setup</h2><p><strong>Data as of:</strong> {{ snapshot.data_as_of_date|default:"No technical date available" }}</p><p><strong>Setup:</strong> {{ trade.setup_name|default:"—" }}</p><p><strong>Filters:</strong> {{ snapshot.screener_context.raw|linebreaksbr|default:"—" }}</p><p><strong>Snapshot hash:</strong><br><code>{{ snapshot.payload_hash }}</code></p>{% if snapshot.chart_image %}<p><a href="{{ snapshot.chart_image.url }}">Open uploaded chart image</a></p>{% endif %}</div>
 <div class="panel"><h2>Entry quality</h2><div class="metrics">

@@ -1,7 +1,8 @@
 from django.test import TestCase
 from django.urls import reverse
 
-from apps.market.models import ChartDrawing, OHLCV, Symbol
+from apps.market.models import ChartDrawing, OHLCV, Symbol, WatchlistItem
+from apps.trading.models import PriceAlert
 
 
 class SymbolChartTests(TestCase):
@@ -25,8 +26,23 @@ class SymbolChartTests(TestCase):
         self.assertContains(response, 'drawMacdPanel("macd-mtf-" + timeframe, timeframe, true)')
         self.assertContains(response, "mtf-macd", count=4)
         self.assertContains(response, 'minallowed: 0', count=2)
-        self.assertContains(response, 'hovermode: "x unified"', count=2)
+        self.assertContains(response, 'hovermode: "closest"', count=2)
+        self.assertContains(response, 'hoverinfo: "text"', count=2)
         self.assertContains(response, "function candleVolumeRange")
+
+    def test_delayed_ticker_watchlist_can_add_list_and_remove(self):
+        added = self.client.post(
+            reverse("market:watchlist_api"),
+            data={"market": "US", "symbol": "CHART"},
+            content_type="application/json",
+        )
+        self.assertEqual(added.status_code, 201)
+        item = WatchlistItem.objects.get(symbol=self.symbol)
+        listing = self.client.get(reverse("market:watchlist_api"))
+        self.assertEqual(listing.json()["items"][0]["symbol"], "CHART")
+        removed = self.client.delete(reverse("market:watchlist_item_api", args=[item.pk]))
+        self.assertEqual(removed.status_code, 200)
+        self.assertFalse(WatchlistItem.objects.exists())
 
     def test_saved_drawing_api_uses_symbol_level_coordinates(self):
         response = self.client.post(
@@ -51,6 +67,22 @@ class SymbolChartTests(TestCase):
 
         listing = self.client.get(reverse("market:chart_drawings", args=[self.symbol.id]))
         self.assertEqual(listing.json()["drawings"][0]["label"], "Weekly base")
+
+    def test_horizontal_drawing_creates_linked_alert_and_is_protected(self):
+        drawing = ChartDrawing.objects.create(
+            symbol=self.symbol, drawing_type=ChartDrawing.DrawingType.HORIZONTAL,
+            source_timeframe="W", points=[{"date": "2026-08-14", "price": "110"}],
+        )
+        response = self.client.post(
+            reverse("market:chart_drawing_alert", args=[drawing.pk]),
+            data={"direction": "ABOVE"}, content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 201)
+        alert = PriceAlert.objects.get(source_drawing=drawing)
+        self.assertEqual(alert.target_price, 110)
+        self.assertEqual(alert.symbol, self.symbol)
+        blocked = self.client.delete(reverse("market:chart_drawing_detail", args=[drawing.pk]))
+        self.assertEqual(blocked.status_code, 409)
 
     def test_dashboard_renders_and_symbol_search_redirects(self):
         response = self.client.get(reverse("market:dashboard"))

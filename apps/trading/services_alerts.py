@@ -29,6 +29,15 @@ def process_quote(symbol_code, price, quote_at=None, market="US"):
         alert.save(update_fields=["last_price", "last_quote_at", "is_active", "status", "triggered_at"])
         if crossed:
             event = AlertEvent.objects.create(alert=alert, price=price, quote_at=quote_at)
+            if alert.source_trade_id and alert.alert_role == PriceAlert.Role.ENTRY:
+                PriceAlert.objects.filter(
+                    source_trade_id=alert.source_trade_id,
+                    alert_role__in=[PriceAlert.Role.STOP, PriceAlert.Role.TARGET],
+                    status=PriceAlert.Status.PAUSED,
+                ).update(
+                    status=PriceAlert.Status.ACTIVE, is_active=True,
+                    last_price=price, last_quote_at=quote_at,
+                )
             if alert.notify_telegram:
                 _send_telegram(event)
             if alert.notify_desktop:

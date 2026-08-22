@@ -11,3 +11,14 @@
         <a href="/admin/">Admin</a>
     </div>
 </nav>
+<section class="ticker-shell" aria-label="Delayed Yahoo watchlist ticker">
+    <div class="ticker-label"><strong>Watchlist</strong><span>Yahoo · delayed</span></div>
+    <div id="ticker-items" class="ticker-items"><span class="ticker-empty">Add up to 20 symbols</span></div>
+    <form id="ticker-add-form" class="ticker-add-form">
+        <select id="ticker-market" aria-label="Ticker market"><option value="US">US</option><option value="IND">India</option></select>
+        <input id="ticker-symbol" maxlength="20" placeholder="Symbol" aria-label="Ticker symbol">
+        <button type="submit">Add</button>
+    </form>
+    <span id="ticker-status" class="ticker-status"></span>
+</section>
+<script defer src="/static/market/ticker.js?v=2"></script>

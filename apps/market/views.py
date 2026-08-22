@@ -6,14 +6,104 @@ from zoneinfo import ZoneInfo
 from django.core.serializers.json import DjangoJSONEncoder
 from django.core.paginator import Paginator
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.cache import cache
 from django.db.models import Count, F, Max
+from django.db.models.deletion import ProtectedError
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_http_methods
 
-from .models import ChartDrawing, OHLCV, OHLCVIngestionState, Symbol, TechnicalSnapshot
+from .models import ChartDrawing, OHLCV, OHLCVIngestionState, Symbol, TechnicalSnapshot, WatchlistItem
+
+
+def _yahoo_ticker_quotes(items):
+    instruments = [item.symbol for item in items]
+    from .services_quotes import fetch_yahoo_intraday_quotes
+    fetched = fetch_yahoo_intraday_quotes(instruments)
+    quotes = []
+    for item in items:
+        instrument = item.symbol
+        try:
+            quote = fetched[instrument.id]
+            price = quote["price"]
+            quote_time = quote["quote_time"]
+            quote_date = quote_time.date()
+            previous = instrument.ohlcv.filter(
+                timeframe=OHLCV.Timeframe.DAILY, date__lt=quote_date,
+            ).order_by("-date").first()
+            if previous is None:
+                previous = instrument.ohlcv.filter(timeframe=OHLCV.Timeframe.DAILY).order_by("-date").first()
+            previous_close = previous.close if previous else None
+            change = price - previous_close if previous_close is not None else None
+            change_pct = change / previous_close * 100 if previous_close else None
+            quotes.append({
+                "id": item.id, "symbol": instrument.symbol, "market": instrument.market,
+                "price": str(price.quantize(Decimal("0.01"))),
+                "change": str(change.quantize(Decimal("0.01"))) if change is not None else None,
+                "change_pct": str(change_pct.quantize(Decimal("0.01"))) if change_pct is not None else None,
+                "quote_time": quote_time.isoformat(), "status": "ok",
+            })
+        except (InvalidOperation, KeyError, TypeError, ValueError):
+            quotes.append({
+                "id": item.id, "symbol": instrument.symbol, "market": instrument.market,
+                "price": None, "change": None, "change_pct": None,
+                "quote_time": None, "status": "unavailable",
+            })
+    return quotes
+
+
+@require_http_methods(["GET", "POST"])
+def watchlist_api(request):
+    if request.method == "POST":
+        try:
+            payload = json.loads(request.body or "{}")
+            market = str(payload.get("market") or "").upper()
+            symbol_code = str(payload.get("symbol") or "").strip().upper()
+            if market not in Symbol.Market.values or not symbol_code:
+                raise ValueError("Choose a market and enter a symbol.")
+            try:
+                instrument = Symbol.objects.get(market=market, symbol=symbol_code, is_active=True)
+            except Symbol.DoesNotExist:
+                return JsonResponse({"error": f"No active {market} symbol named {symbol_code} was found."}, status=404)
+            if WatchlistItem.objects.count() >= 20 and not WatchlistItem.objects.filter(symbol=instrument).exists():
+                raise ValueError("The delayed ticker tape is limited to 20 symbols.")
+            item, created = WatchlistItem.objects.get_or_create(symbol=instrument)
+            return JsonResponse({"id": item.id, "created": created}, status=201 if created else 200)
+        except (json.JSONDecodeError, ValueError) as error:
+            return JsonResponse({"error": str(error)}, status=400)
+    items = WatchlistItem.objects.select_related("symbol")
+    return JsonResponse({
+        "items": [{"id": item.id, "symbol": item.symbol.symbol, "market": item.symbol.market} for item in items]
+    })
+
+
+@require_http_methods(["DELETE"])
+def watchlist_item_api(request, item_id):
+    item = get_object_or_404(WatchlistItem, pk=item_id)
+    item.delete()
+    return JsonResponse({"deleted": True})
+
+
+@ensure_csrf_cookie
+@require_http_methods(["GET"])
+def ticker_quotes_api(request):
+    items = list(WatchlistItem.objects.select_related("symbol"))
+    if not items:
+        return JsonResponse({"quotes": [], "provider": "Yahoo", "delayed": True})
+    cache_key = "ticker-quotes-v1-" + "-".join(str(item.id) for item in items)
+    quotes = cache.get(cache_key)
+    if quotes is None:
+        try:
+            quotes = _yahoo_ticker_quotes(items)
+            cache.set(cache_key, quotes, 55)
+        except Exception as error:
+            return JsonResponse({
+                "quotes": [], "provider": "Yahoo", "delayed": True,
+                "error": f"Yahoo quotes are temporarily unavailable: {str(error)[:180]}",
+            }, status=503)
+    return JsonResponse({"quotes": quotes, "provider": "Yahoo", "delayed": True})
 
 
 def _market_health_cards():
@@ -136,6 +226,7 @@ def data_health(request):
     return render(request, "market/data_health.html", {
         "market_cards": _market_health_cards(),
         "us_worker": AlertWorkerState.objects.filter(name="tiingo_us").first(),
+        "yahoo_worker": AlertWorkerState.objects.filter(name="yahoo_us_delayed").first(),
         "ind_worker": AlertWorkerState.objects.filter(name="indstocks_ind").first(),
     })
 
@@ -218,6 +309,7 @@ def _drawing_payload(drawing):
         "line_width": drawing.line_width,
         "is_visible": drawing.is_visible,
         "is_locked": drawing.is_locked,
+        "alert_count": drawing.price_alerts.exclude(status="ARCHIVED").count(),
     }
 
 
@@ -264,7 +356,13 @@ def chart_drawings(request, symbol_id):
 def chart_drawing_detail(request, drawing_id):
     drawing = get_object_or_404(ChartDrawing, pk=drawing_id)
     if request.method == "DELETE":
-        drawing.delete()
+        if drawing.price_alerts.exclude(status="ARCHIVED").exists():
+            return JsonResponse({"error": "Archive linked alerts before deleting this drawing."}, status=409)
+        drawing.price_alerts.filter(status="ARCHIVED").update(source_drawing=None)
+        try:
+            drawing.delete()
+        except ProtectedError:
+            return JsonResponse({"error": "Archive linked alerts before deleting this drawing."}, status=409)
         return JsonResponse({}, status=204)
     try:
         payload = json.loads(request.body or "{}")
@@ -277,6 +375,30 @@ def chart_drawing_detail(request, drawing_id):
     except (TypeError, ValueError) as error:
         return JsonResponse({"error": str(error)}, status=400)
     return JsonResponse({"drawing": _drawing_payload(drawing)})
+
+
+@require_http_methods(["POST"])
+def chart_drawing_alert(request, drawing_id):
+    from apps.trading.models import PriceAlert
+
+    drawing = get_object_or_404(ChartDrawing.objects.select_related("symbol"), pk=drawing_id)
+    if drawing.drawing_type != ChartDrawing.DrawingType.HORIZONTAL:
+        return JsonResponse({"error": "Dynamic ray/channel alerts are not enabled yet."}, status=400)
+    try:
+        payload = json.loads(request.body or "{}")
+        direction = str(payload.get("direction", "")).upper()
+        if direction not in PriceAlert.Direction.values:
+            raise ValueError("Direction must be ABOVE or BELOW.")
+        target = Decimal(str(drawing.points[0]["price"]))
+        alert, created = PriceAlert.objects.get_or_create(
+            source_drawing=drawing, direction=direction,
+            defaults={"symbol": drawing.symbol, "target_price": target, "drawing_component": "LEVEL"},
+        )
+        if not created and alert.status != PriceAlert.Status.ACTIVE:
+            alert.rearm()
+        return JsonResponse({"alert": {"id": alert.id, "direction": alert.direction, "target_price": str(alert.target_price)}, "created": created}, status=201 if created else 200)
+    except (KeyError, TypeError, ValueError, InvalidOperation) as error:
+        return JsonResponse({"error": str(error)}, status=400)
 
 
 def technical_screener(request):

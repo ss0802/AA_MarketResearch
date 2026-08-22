@@ -129,6 +129,13 @@
         .drawing-chip { display: flex; align-items: center; gap: 6px; background: #f2f4f7; border-radius: 16px; padding: 5px 9px; color: #344054; }
         .drawing-chip button { border: 0; background: transparent; padding: 1px 4px; color: #475467; }
         .indicator-panel { background: white; border-radius: 8px; padding: 0 14px; margin-bottom: 25px; }
+        .planner { background:white; border-radius:8px; padding:0 16px 16px; margin-bottom:25px; }
+        .planner summary { cursor:pointer; padding:15px 0; font-weight:700; }
+        .planner-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; padding-bottom:14px; }
+        .planner label { display:block; color:#475467; font-size:12px; font-weight:700; margin-bottom:5px; }
+        .planner input,.planner select,.planner textarea { width:100%; box-sizing:border-box; padding:8px; border:1px solid #d0d5dd; border-radius:5px; }
+        .planner input[type="checkbox"] { width:auto; }
+        .planner textarea { min-height:72px; }.planner-wide{grid-column:span 2}.planner-result{color:#027a48;font-weight:700;padding:8px 0 14px}
         .indicator-panel summary { cursor: pointer; padding: 14px 2px; font-weight: 700; }
         .indicator-controls { display: flex; align-items: center; gap: 10px; padding-bottom: 8px; }
         .indicator-controls select { padding: 7px; border: 1px solid #ccc; border-radius: 5px; }
@@ -249,6 +256,31 @@
         <div id="chart"></div>
     </div>
 
+    <details class="planner" id="trade-planner">
+        <summary>Plan trade from this chart</summary>
+        <div class="planner-grid">
+            <div><label>Side</label><select id="plan-side" onchange="updatePlanPreview()"><option value="LONG">Long</option><option value="SHORT">Short</option></select></div>
+            <div><label>Entry</label><input id="plan-entry" type="number" step="0.01" oninput="updatePlanPreview()"></div>
+            <div><label>Initial stop</label><input id="plan-stop" type="number" step="0.01" oninput="updatePlanPreview()"></div>
+            <div><label>Maximum ₹ risk</label><input id="plan-risk" type="number" step="0.01" min="0" oninput="updatePlanPreview()"></div>
+            <div><label>Quantity (optional)</label><input id="plan-quantity" type="number" min="1" oninput="updatePlanPreview()"></div>
+            <div><label>Target R</label><input id="plan-target-r" type="number" step="0.25" min="0.25" value="3" oninput="updatePlanPreview()"></div>
+            <div><label>Setup name</label><input id="plan-setup" value="Chart plan"></div>
+            <div><label>Tags</label><input id="plan-tags" placeholder="breakout, squeeze, retest"></div>
+            <div class="planner-wide"><label>Thesis</label><textarea id="plan-thesis" placeholder="Why this trade should work and what invalidates it"></textarea></div>
+            <div class="planner-wide"><label>Linked saved lines</label><div id="plan-lines">No entry/stop drawings selected.</div></div>
+            <div class="planner-wide">
+                <label>Price alerts</label>
+                <label><input id="plan-alert-entry" type="checkbox" checked> Entry</label>
+                <label><input id="plan-alert-stop" type="checkbox" checked> Stop-loss (activates after entry)</label>
+                <label><input id="plan-alert-target" type="checkbox" checked> Target (activates after entry)</label>
+            </div>
+        </div>
+        <div id="plan-preview" class="planner-result">Enter entry, stop, and either quantity or maximum risk.</div>
+        <button type="button" onclick="saveChartPlan()">Save planned trade</button>
+        <span id="plan-status"></span>
+    </details>
+
     <details class="indicator-panel" id="indicator-panel" open>
         <summary>Indicators</summary>
         <div class="indicator-controls">
@@ -323,6 +355,8 @@
     let managedDrawingMode = null;
     let managedSegments = [];
     let processingManagedShape = false;
+    let planEntryDrawingId = null;
+    let planStopDrawingId = null;
 
     const drawingsApiUrl = "{% url 'market:chart_drawings' stock.id %}";
 
@@ -352,6 +386,7 @@
             chip.style.borderLeft = "4px solid " + drawing.color;
             const title = document.createElement("span");
             title.textContent = drawingName(drawing) + " · " + drawing.source_timeframe;
+            if (drawing.alert_count) title.textContent += " · " + drawing.alert_count + " alert" + (drawing.alert_count === 1 ? "" : "s");
             if (!drawing.is_visible) title.style.opacity = ".45";
             const visibility = document.createElement("button");
             visibility.type = "button";
@@ -361,9 +396,107 @@
             remove.type = "button";
             remove.textContent = "Delete";
             remove.onclick = () => deleteSharedDrawing(drawing.id);
-            chip.append(title, visibility, remove);
+            chip.append(title, visibility);
+            if (drawing.drawing_type === "HORIZONTAL") {
+                const alertButton = document.createElement("button");
+                alertButton.type = "button";
+                alertButton.textContent = "Alert";
+                alertButton.onclick = () => createDrawingAlert(drawing.id);
+                chip.appendChild(alertButton);
+                const planButton = document.createElement("button");
+                planButton.type = "button";
+                planButton.textContent = "Use in plan";
+                planButton.onclick = () => useDrawingInPlan(drawing);
+                chip.appendChild(planButton);
+            }
+            chip.appendChild(remove);
             container.appendChild(chip);
         });
+    }
+
+    async function createDrawingAlert(drawingId) {
+        const answer = window.prompt("Crossing direction: ABOVE or BELOW", "ABOVE");
+        if (!answer) return;
+        const direction = answer.trim().toUpperCase();
+        if (!["ABOVE", "BELOW"].includes(direction)) {
+            setDrawingStatus("Direction must be ABOVE or BELOW.");
+            return;
+        }
+        const response = await fetch("/api/drawings/" + drawingId + "/alert/", {
+            method: "POST",
+            headers: {"Content-Type": "application/json", "X-CSRFToken": csrfToken()},
+            body: JSON.stringify({direction})
+        });
+        const payload = await response.json();
+        if (!response.ok) {
+            setDrawingStatus(payload.error || "The drawing alert could not be created.");
+            return;
+        }
+        setDrawingStatus("Alert active: crosses " + payload.alert.direction.toLowerCase() + " " + Number(payload.alert.target_price).toFixed(2));
+        await loadSharedDrawings();
+    }
+
+    function useDrawingInPlan(drawing) {
+        const role = window.prompt("Use this level as ENTRY or STOP?", "ENTRY");
+        if (!role) return;
+        const selected = role.trim().toUpperCase();
+        const price = Number(drawing.points[0].price);
+        if (selected === "ENTRY") {
+            planEntryDrawingId = drawing.id;
+            document.getElementById("plan-entry").value = price.toFixed(2);
+        } else if (selected === "STOP") {
+            planStopDrawingId = drawing.id;
+            document.getElementById("plan-stop").value = price.toFixed(2);
+        } else {
+            setDrawingStatus("Choose ENTRY or STOP.");
+            return;
+        }
+        document.getElementById("trade-planner").open = true;
+        document.getElementById("plan-lines").textContent = "Entry drawing: " + (planEntryDrawingId || "—") + " · Stop drawing: " + (planStopDrawingId || "—");
+        updatePlanPreview();
+    }
+
+    function planValues() {
+        return {
+            entry: Number(document.getElementById("plan-entry").value), stop: Number(document.getElementById("plan-stop").value),
+            risk: Number(document.getElementById("plan-risk").value), quantity: Number(document.getElementById("plan-quantity").value),
+            targetR: Number(document.getElementById("plan-target-r").value || 3), side: document.getElementById("plan-side").value
+        };
+    }
+
+    function updatePlanPreview() {
+        const value = planValues();
+        const distance = Math.abs(value.entry - value.stop);
+        const quantity = value.quantity > 0 ? Math.floor(value.quantity) : (value.risk > 0 && distance > 0 ? Math.floor(value.risk / distance) : 0);
+        if (!(value.entry > 0 && value.stop > 0 && distance > 0 && quantity > 0)) {
+            document.getElementById("plan-preview").textContent = "Enter entry, stop, and either quantity or maximum risk.";
+            return;
+        }
+        const target = value.entry + (value.side === "LONG" ? 1 : -1) * distance * value.targetR;
+        document.getElementById("plan-preview").textContent = "Quantity " + quantity + " · planned risk ₹" + (distance * quantity).toFixed(2) + " · target " + target.toFixed(2);
+    }
+
+    async function saveChartPlan() {
+        const value = planValues();
+        const response = await fetch("{% url 'trading:chart_trade_plan' %}", {
+            method: "POST", headers: {"Content-Type": "application/json", "X-CSRFToken": csrfToken()},
+            body: JSON.stringify({
+                symbol_id: {{ stock.id }}, side: value.side, entry_price: value.entry, stop_price: value.stop,
+                maximum_risk: value.risk, quantity: value.quantity, target_r: value.targetR, timeframe: currentTimeframe,
+                setup_name: document.getElementById("plan-setup").value, setup_tags: document.getElementById("plan-tags").value,
+                thesis: document.getElementById("plan-thesis").value, entry_drawing_id: planEntryDrawingId,
+                stop_drawing_id: planStopDrawingId, source_url: document.referrer || window.location.href,
+                create_entry_alert: document.getElementById("plan-alert-entry").checked,
+                create_stop_alert: document.getElementById("plan-alert-stop").checked,
+                create_target_alert: document.getElementById("plan-alert-target").checked
+            })
+        });
+        const payload = await response.json();
+        if (!response.ok) {
+            document.getElementById("plan-status").textContent = payload.error || "Plan could not be saved.";
+            return;
+        }
+        document.getElementById("plan-status").innerHTML = 'Saved with ' + payload.alert_ids.length + ' alert(s) · <a href="' + payload.detail_url + '">open frozen plan</a>';
     }
 
     function setDrawingStatus(message) {
@@ -420,7 +553,11 @@
             headers: {"Content-Type": "application/json", "X-CSRFToken": csrfToken()},
             body: JSON.stringify(changes)
         });
-        if (!response.ok) return;
+        if (!response.ok) {
+            const payload = await response.json();
+            setDrawingStatus(payload.error || "The drawing could not be updated.");
+            return;
+        }
         const payload = await response.json();
         sharedDrawings = sharedDrawings.map(item => item.id === id ? payload.drawing : item);
         renderDrawingList();
@@ -434,7 +571,11 @@
             method: "DELETE",
             headers: {"X-CSRFToken": csrfToken()}
         });
-        if (!response.ok) return;
+        if (!response.ok) {
+            const payload = await response.json();
+            setDrawingStatus(payload.error || "The drawing could not be deleted.");
+            return;
+        }
         sharedDrawings = sharedDrawings.filter(item => item.id !== id);
         renderDrawingList();
         if (!document.getElementById("single-chart-container").classList.contains("hidden")) drawChart(currentTimeframe);
@@ -659,6 +800,15 @@
             low: candles.map(row => row.low),
             close: candles.map(row => row.close),
 
+            text: candles.map(row =>
+                "<b>" + row.date + "</b><br>" +
+                "Open: " + Number(row.open).toFixed(2) + "<br>" +
+                "High: " + Number(row.high).toFixed(2) + "<br>" +
+                "Low: " + Number(row.low).toFixed(2) + "<br>" +
+                "Close: " + Number(row.close).toFixed(2)
+            ),
+            hoverinfo: "text",
+
             type: "candlestick",
 
             name: "{{ stock.symbol }}"
@@ -747,8 +897,8 @@
             newshape: {
                 line: {color: "#7f56d9", width: 2}
             },
-            hovermode: "x unified",
-            hoverdistance: -1,
+            hovermode: "closest",
+            hoverdistance: 50,
             spikedistance: -1,
             hoverlabel: {bgcolor: "#101828", font: {color: "white"}}
         };
@@ -882,6 +1032,15 @@
             low: candles.map(row => row.low),
             close: candles.map(row => row.close),
 
+            text: candles.map(row =>
+                "<b>" + row.date + "</b><br>" +
+                "Open: " + Number(row.open).toFixed(2) + "<br>" +
+                "High: " + Number(row.high).toFixed(2) + "<br>" +
+                "Low: " + Number(row.low).toFixed(2) + "<br>" +
+                "Close: " + Number(row.close).toFixed(2)
+            ),
+            hoverinfo: "text",
+
             type: "candlestick",
 
             name: "{{ stock.symbol }}"
@@ -963,8 +1122,8 @@
             shapes: sharedDrawingShapes(candles, timeframe, true),
 
             showlegend: false,
-            hovermode: "x unified",
-            hoverdistance: -1,
+            hovermode: "closest",
+            hoverdistance: 50,
             spikedistance: -1,
             hoverlabel: {bgcolor: "#101828", font: {color: "white"}}
         };
@@ -1035,6 +1194,11 @@
         drawMTFChart("M");
     }
 
+
+    if (chartData.D && chartData.D.length) {
+        document.getElementById("plan-entry").value = Number(chartData.D[chartData.D.length - 1].close).toFixed(2);
+    }
+    updatePlanPreview();
 
     loadSharedDrawings()
         .catch(() => setDrawingStatus("Saved drawings could not be loaded."))

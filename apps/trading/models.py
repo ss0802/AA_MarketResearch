@@ -3,7 +3,7 @@ from decimal import Decimal
 from django.core.exceptions import ValidationError
 from django.db import models
 
-from apps.market.models import Symbol
+from apps.market.models import ChartDrawing, Symbol
 
 
 class Trade(models.Model):
@@ -130,6 +130,11 @@ class TradePositionMark(models.Model):
 
 
 class PriceAlert(models.Model):
+    class Role(models.TextChoices):
+        ENTRY = "ENTRY", "Entry"
+        STOP = "STOP", "Stop-loss"
+        TARGET = "TARGET", "Target"
+
     class Direction(models.TextChoices):
         ABOVE = "ABOVE", "Crosses above"
         BELOW = "BELOW", "Crosses below"
@@ -141,6 +146,16 @@ class PriceAlert(models.Model):
         ARCHIVED = "ARCHIVED", "Archived"
 
     symbol = models.ForeignKey(Symbol, on_delete=models.CASCADE, related_name="price_alerts")
+    source_trade = models.ForeignKey(
+        Trade, on_delete=models.CASCADE, related_name="price_alerts",
+        null=True, blank=True,
+    )
+    alert_role = models.CharField(max_length=10, choices=Role.choices, blank=True)
+    source_drawing = models.ForeignKey(
+        ChartDrawing, on_delete=models.PROTECT, related_name="price_alerts",
+        null=True, blank=True,
+    )
+    drawing_component = models.CharField(max_length=20, blank=True)
     direction = models.CharField(max_length=5, choices=Direction.choices)
     target_price = models.DecimalField(max_digits=20, decimal_places=6)
     is_active = models.BooleanField(default=True)
