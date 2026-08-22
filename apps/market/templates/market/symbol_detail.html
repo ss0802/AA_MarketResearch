@@ -136,6 +136,7 @@
         .planner input,.planner select,.planner textarea { width:100%; box-sizing:border-box; padding:8px; border:1px solid #d0d5dd; border-radius:5px; }
         .planner input[type="checkbox"] { width:auto; }
         .planner textarea { min-height:72px; }.planner-wide{grid-column:span 2}.planner-result{color:#027a48;font-weight:700;padding:8px 0 14px}
+        .regime-warning { border-radius:6px; padding:10px; margin-bottom:12px; background:#fffaeb; color:#93370d; }
         .indicator-panel summary { cursor: pointer; padding: 14px 2px; font-weight: 700; }
         .indicator-controls { display: flex; align-items: center; gap: 10px; padding-bottom: 8px; }
         .indicator-controls select { padding: 7px; border: 1px solid #ccc; border-radius: 5px; }
@@ -258,6 +259,7 @@
 
     <details class="planner" id="trade-planner">
         <summary>Plan trade from this chart</summary>
+        {% if market_regime %}<div id="plan-regime-warning" class="regime-warning" data-regime="{{ market_regime.regime }}"><strong>Verified {{ stock.get_market_display }} regime:</strong> {{ market_regime.get_regime_display }} (score {{ market_regime.score|stringformat:"+d" }}, {{ market_regime.as_of_date }}). <span id="plan-regime-guidance"></span> <a href="{% url 'market:market_condition' stock.market %}">Inspect evidence</a></div>{% endif %}
         <div class="planner-grid">
             <div><label>Side</label><select id="plan-side" onchange="updatePlanPreview()"><option value="LONG">Long</option><option value="SHORT">Short</option></select></div>
             <div><label>Entry</label><input id="plan-entry" type="number" step="0.01" oninput="updatePlanPreview()"></div>
@@ -465,6 +467,7 @@
     }
 
     function updatePlanPreview() {
+        updateRegimeWarning();
         const value = planValues();
         const distance = Math.abs(value.entry - value.stop);
         const quantity = value.quantity > 0 ? Math.floor(value.quantity) : (value.risk > 0 && distance > 0 ? Math.floor(value.risk / distance) : 0);
@@ -474,6 +477,17 @@
         }
         const target = value.entry + (value.side === "LONG" ? 1 : -1) * distance * value.targetR;
         document.getElementById("plan-preview").textContent = "Quantity " + quantity + " · planned risk ₹" + (distance * quantity).toFixed(2) + " · target " + target.toFixed(2);
+    }
+
+    function updateRegimeWarning() {
+        const panel = document.getElementById("plan-regime-warning");
+        if (!panel) return;
+        const side = document.getElementById("plan-side").value;
+        const regime = panel.dataset.regime;
+        const conflict = (side === "LONG" && regime === "BEARISH") || (side === "SHORT" && regime === "BULLISH");
+        document.getElementById("plan-regime-guidance").textContent = conflict
+            ? "Warning: the planned direction conflicts with the verified market regime."
+            : "The planned direction does not conflict with the verified regime.";
     }
 
     async function saveChartPlan() {

@@ -36,6 +36,16 @@ class SymbolChartTests(TestCase):
         self.assertEqual(classify_regime(3), "NEUTRAL")
         self.assertEqual(classify_regime(-3), "NEUTRAL")
         self.assertEqual(classify_regime(-4), "BEARISH")
+        self.assertEqual(classify_regime(2, "BULLISH"), "BULLISH")
+        self.assertEqual(classify_regime(1, "BULLISH"), "NEUTRAL")
+        self.assertEqual(classify_regime(-2, "BEARISH"), "BEARISH")
+        self.assertEqual(classify_regime(-1, "BEARISH"), "NEUTRAL")
+
+    def test_market_condition_page_opens_without_history(self):
+        response = self.client.get(reverse("market:market_condition", args=["US"]))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "United States Market Condition")
+        self.assertContains(response, "No market-condition history exists")
 
     def test_delayed_ticker_watchlist_can_add_list_and_remove(self):
         added = self.client.post(

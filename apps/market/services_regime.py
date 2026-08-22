@@ -17,7 +17,14 @@ def _pct(numerator, denominator):
     return (Decimal(numerator) * 100 / Decimal(denominator)).quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
 
 
-def classify_regime(score):
+def classify_regime(score, previous_regime=""):
+    # Hysteresis prevents a single borderline session from repeatedly flipping
+    # a useful regime signal. Entry needs +/-4; an established regime persists
+    # until its score weakens through +/-2.
+    if previous_regime == MarketRegimeSnapshot.Regime.BULLISH and score >= 2:
+        return MarketRegimeSnapshot.Regime.BULLISH
+    if previous_regime == MarketRegimeSnapshot.Regime.BEARISH and score <= -2:
+        return MarketRegimeSnapshot.Regime.BEARISH
     if score >= 4:
         return MarketRegimeSnapshot.Regime.BULLISH
     if score <= -4:
@@ -130,8 +137,8 @@ def calculate_market_regime(market, as_of_date=None):
         reasons.append("Declines exceed advances")
     else:
         reasons.append("Advances equal declines")
-    regime = classify_regime(score)
     previous = MarketRegimeSnapshot.objects.filter(market=market, as_of_date__lt=as_of_date).order_by("-as_of_date").first()
+    regime = classify_regime(score, previous.regime if previous else "")
     previous_line = previous.advance_decline_line if previous else 0
     coverage = _pct(breadth_count, universe_size)
     long_term_eligibility = _pct(eligible200, universe_size)

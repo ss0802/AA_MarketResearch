@@ -240,6 +240,27 @@ def guide(request):
     return render(request, "market/guide.html")
 
 
+def market_condition(request, market):
+    market = market.upper()
+    if market not in Symbol.Market.values:
+        return JsonResponse({"error": "Market must be IND or US."}, status=404)
+    history = list(MarketRegimeSnapshot.objects.filter(market=market).select_related("benchmark").order_by("-as_of_date")[:300])
+    history.reverse()
+    chart_rows = [{
+        "date": row.as_of_date, "close": row.benchmark_close,
+        "sma20": row.benchmark_sma20, "sma50": row.benchmark_sma50, "sma200": row.benchmark_sma200,
+        "above20": row.pct_above_sma20, "above50": row.pct_above_sma50, "above200": row.pct_above_sma200,
+        "ad_line": row.advance_decline_line, "ad_net": row.advance_decline_net,
+        "score": row.score, "regime": row.regime,
+    } for row in history]
+    return render(request, "market/market_condition.html", {
+        "market": market, "market_name": "India" if market == Symbol.Market.INDIA else "United States",
+        "latest": history[-1] if history else None,
+        "transitions": list(reversed([row for row in history if row.is_transition][-12:])),
+        "chart_data": json.dumps(chart_rows, cls=DjangoJSONEncoder),
+    })
+
+
 @ensure_csrf_cookie
 def symbol_detail(request, symbol):
     symbol_code = symbol.upper()
@@ -288,6 +309,9 @@ def symbol_detail(request, symbol):
         "daily_count": len(daily),
         "weekly_count": len(weekly),
         "monthly_count": len(monthly),
+        "market_regime": MarketRegimeSnapshot.objects.filter(
+            market=stock.market, is_verified=True,
+        ).order_by("-as_of_date").first(),
 
         # Complete history for chart
         "chart_data": json.dumps(

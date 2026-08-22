@@ -64,6 +64,8 @@
         <a class="app-card" href="{% url 'trading:trade_list' %}"><h3>Trade Journal</h3><p>Review {{ trade_count }} recorded trade{{ trade_count|pluralize }} and frozen setup records.</p></a>
         <a class="app-card" href="{% url 'trading:alert_list' %}"><h3>Alerts</h3><p>Create live price alerts and review notification history.</p></a>
         <a class="app-card" href="{% url 'market:guide' %}"><h3>Getting Started</h3><p>Follow the daily workflow and learn each application.</p></a>
+        <a class="app-card" href="{% url 'market:market_condition' 'IND' %}"><h3>India Market Condition</h3><p>Review Nifty trend, breadth, A/D history and regime transitions.</p></a>
+        <a class="app-card" href="{% url 'market:market_condition' 'US' %}"><h3>US Market Condition</h3><p>Review SPY trend, breadth, A/D history and regime transitions.</p></a>
         <div class="app-card"><h3>Backtests</h3><p>Planned: strategy expectancy, drawdown and regime analysis.</p></div>
     </section>
 

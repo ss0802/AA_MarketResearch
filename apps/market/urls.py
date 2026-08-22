@@ -10,6 +10,7 @@ urlpatterns = [
     path("", views.dashboard, name="dashboard"),
     path("data-health/", views.data_health, name="data_health"),
     path("guide/", views.guide, name="guide"),
+    path("market-condition/<str:market>/", views.market_condition, name="market_condition"),
     path("api/watchlist/", views.watchlist_api, name="watchlist_api"),
     path("api/watchlist/<int:item_id>/", views.watchlist_item_api, name="watchlist_item_api"),
     path("api/ticker-quotes/", views.ticker_quotes_api, name="ticker_quotes_api"),
