@@ -2,6 +2,7 @@ from django.test import TestCase
 from django.urls import reverse
 
 from apps.market.models import ChartDrawing, OHLCV, Symbol, WatchlistItem
+from apps.market.services_regime import classify_regime
 from apps.trading.models import PriceAlert
 
 
@@ -29,6 +30,12 @@ class SymbolChartTests(TestCase):
         self.assertContains(response, 'hovermode: "closest"', count=2)
         self.assertContains(response, 'hoverinfo: "text"', count=2)
         self.assertContains(response, "function candleVolumeRange")
+
+    def test_market_regime_score_has_neutral_band(self):
+        self.assertEqual(classify_regime(4), "BULLISH")
+        self.assertEqual(classify_regime(3), "NEUTRAL")
+        self.assertEqual(classify_regime(-3), "NEUTRAL")
+        self.assertEqual(classify_regime(-4), "BEARISH")
 
     def test_delayed_ticker_watchlist_can_add_list_and_remove(self):
         added = self.client.post(

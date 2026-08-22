@@ -37,6 +37,9 @@
         .lower { display:grid; grid-template-columns:1.2fr .8fr; gap:18px; margin-top:20px; }
         .lower .panel { padding:20px; }
         .placeholder { border:1px dashed #98a2b3; border-radius:9px; padding:18px; color:var(--muted); background:#f9fafb; }
+        .condition-card { border:1px solid var(--line); border-radius:9px; padding:16px; background:#f9fafb; }
+        .condition-card h3 { margin:0 0 8px; }.condition-card .BULLISH{color:var(--green)}.condition-card .BEARISH{color:var(--red)}.condition-card .NEUTRAL{color:#b54708}
+        .condition-evidence { font-size:13px; color:var(--muted); line-height:1.55; }
         .readiness { padding:15px 18px; display:flex; gap:18px; align-items:center; flex-wrap:wrap; }
         .readiness a { margin-left:auto; color:var(--blue); font-weight:700; text-decoration:none; }
         table { width:100%; border-collapse:collapse; } th,td { padding:9px; border-bottom:1px solid var(--line); text-align:left; font-size:14px; }
@@ -65,7 +68,7 @@
     </section>
 
     <section class="lower">
-        <div class="panel"><h2 style="margin-top:0">Market condition</h2><div class="markets"><div class="placeholder"><strong>India: Not calculated</strong><br>Awaiting Nifty and breadth history.</div><div class="placeholder"><strong>United States: Not calculated</strong><br>Awaiting S&amp;P 500 and breadth history.</div></div></div>
+        <div class="panel"><h2 style="margin-top:0">Market condition</h2><div class="markets">{% for regime in market_regimes %}{% if regime %}<article class="condition-card"><h3>{{ regime.get_market_display }}: <span class="{{ regime.regime }}">{{ regime.get_regime_display }}</span></h3><div class="condition-evidence">{{ regime.as_of_date }} · Score {{ regime.score|stringformat:"+d" }} · {{ regime.coverage_pct|floatformat:1 }}% current-data coverage<br>{{ regime.pct_above_sma20|floatformat:0 }}% above SMA20 ({{ regime.eligible_sma20 }}) · {{ regime.pct_above_sma50|floatformat:0 }}% above SMA50 ({{ regime.eligible_sma50 }}) · {{ regime.pct_above_sma200|floatformat:0 }}% above SMA200 ({{ regime.eligible_sma200 }})<br>A/D {{ regime.advance_decline_net|stringformat:"+d" }} · Benchmark {{ regime.benchmark.symbol }}{% if regime.is_transition %}<br><strong>Changed from {{ regime.get_previous_regime_display }}</strong>{% endif %}{% if not regime.is_verified %}<br><span class="bad">Unverified: data-readiness thresholds not met</span>{% endif %}</div></article>{% else %}<div class="placeholder"><strong>Not calculated</strong><br>Run the market-regime computation after technicals.</div>{% endif %}{% endfor %}</div></div>
         <div class="panel"><h2 style="margin-top:0">Recent trades</h2><table><thead><tr><th>Date</th><th>Symbol</th><th>Status</th><th>R</th></tr></thead><tbody>{% for trade in recent_trades %}<tr><td>{{ trade.entry_at|date:"d M" }}</td><td>{{ trade.symbol.symbol }}</td><td>{{ trade.get_status_display }}</td><td>{{ trade.r_multiple|floatformat:2|default:"—" }}</td></tr>{% empty %}<tr><td colspan="4">No journal entries yet.</td></tr>{% endfor %}</tbody></table></div>
     </section>
 </main>

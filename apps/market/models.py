@@ -259,6 +259,7 @@ class TechnicalSnapshot(models.Model):
     sma50 = models.DecimalField(max_digits=20, decimal_places=6, null=True)
     sma100 = models.DecimalField(max_digits=20, decimal_places=6, null=True)
     sma150 = models.DecimalField(max_digits=20, decimal_places=6, null=True)
+    sma200 = models.DecimalField(max_digits=20, decimal_places=6, null=True)
     sma250 = models.DecimalField(max_digits=20, decimal_places=6, null=True)
 
     atr14 = models.DecimalField(max_digits=20, decimal_places=6, null=True)
@@ -308,6 +309,51 @@ class TechnicalSnapshot(models.Model):
             models.Index(fields=["timeframe", "momentum"], name="technical_tf_momentum_idx"),
             models.Index(fields=["timeframe", "is_squeeze"], name="technical_tf_squeeze_idx"),
         ]
+
+
+class MarketRegimeSnapshot(models.Model):
+    class Regime(models.TextChoices):
+        BULLISH = "BULLISH", "Bullish"
+        NEUTRAL = "NEUTRAL", "Neutral"
+        BEARISH = "BEARISH", "Bearish"
+
+    market = models.CharField(max_length=3, choices=Symbol.Market.choices)
+    as_of_date = models.DateField()
+    benchmark = models.ForeignKey(Symbol, on_delete=models.PROTECT, related_name="market_regime_snapshots")
+    benchmark_close = models.DecimalField(max_digits=20, decimal_places=6)
+    benchmark_sma20 = models.DecimalField(max_digits=20, decimal_places=6)
+    benchmark_sma50 = models.DecimalField(max_digits=20, decimal_places=6)
+    benchmark_sma200 = models.DecimalField(max_digits=20, decimal_places=6)
+    benchmark_sma20_slope = models.DecimalField(max_digits=20, decimal_places=8)
+    universe_size = models.PositiveIntegerField()
+    breadth_count = models.PositiveIntegerField()
+    eligible_sma20 = models.PositiveIntegerField(default=0)
+    eligible_sma50 = models.PositiveIntegerField(default=0)
+    eligible_sma200 = models.PositiveIntegerField(default=0)
+    coverage_pct = models.DecimalField(max_digits=7, decimal_places=3)
+    pct_above_sma20 = models.DecimalField(max_digits=7, decimal_places=3)
+    pct_above_sma50 = models.DecimalField(max_digits=7, decimal_places=3)
+    pct_above_sma200 = models.DecimalField(max_digits=7, decimal_places=3)
+    advances = models.PositiveIntegerField(default=0)
+    declines = models.PositiveIntegerField(default=0)
+    unchanged = models.PositiveIntegerField(default=0)
+    advance_decline_net = models.IntegerField(default=0)
+    advance_decline_line = models.BigIntegerField(default=0)
+    score = models.SmallIntegerField()
+    regime = models.CharField(max_length=8, choices=Regime.choices)
+    previous_regime = models.CharField(max_length=8, choices=Regime.choices, blank=True)
+    is_transition = models.BooleanField(default=False)
+    is_verified = models.BooleanField(default=False)
+    reasons = models.JSONField(default=list)
+    calculation_version = models.CharField(max_length=20, default="regime-v1")
+    calculated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-as_of_date", "market"]
+        constraints = [
+            models.UniqueConstraint(fields=["market", "as_of_date"], name="unique_market_regime_date"),
+        ]
+        indexes = [models.Index(fields=["market", "-as_of_date"], name="regime_market_date_idx")]
 
 
 class ChartDrawing(models.Model):

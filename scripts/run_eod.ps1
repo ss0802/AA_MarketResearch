@@ -39,6 +39,7 @@ try {
     }
 
 $startedAt = Get-Date -Format "yyyy-MM-dd HH:mm:ss K"
+$exitCode = 0
 "[$startedAt] Starting $Market Tradeable EOD ingestion" | Out-File -FilePath $logPath -Append -Encoding utf8
 
 $ErrorActionPreference = "Continue"
@@ -50,14 +51,36 @@ $ingestionExitCode = $LASTEXITCODE
 $ErrorActionPreference = "Stop"
 
 if ($ingestionExitCode -eq 0) {
+    "[$(Get-Date -Format "yyyy-MM-dd HH:mm:ss K")] Refreshing $Market regime benchmark" | Out-File -FilePath $logPath -Append -Encoding utf8
+    $ErrorActionPreference = "Continue"
+    & $pythonPath -u manage.py ingest_regime_benchmark --market $Market 2>&1 |
+        ForEach-Object {
+            $_ | Out-File -FilePath $logPath -Append -Encoding utf8
+        }
+    $benchmarkExitCode = $LASTEXITCODE
+    $ErrorActionPreference = "Stop"
+    if ($benchmarkExitCode -ne 0) {
+        $exitCode = $benchmarkExitCode
+    }
     "[$(Get-Date -Format "yyyy-MM-dd HH:mm:ss K")] Computing $Market technical snapshots" | Out-File -FilePath $logPath -Append -Encoding utf8
     $ErrorActionPreference = "Continue"
     & $pythonPath -u manage.py compute_technicals --market $Market 2>&1 |
         ForEach-Object {
             $_ | Out-File -FilePath $logPath -Append -Encoding utf8
         }
-    $exitCode = $LASTEXITCODE
+    $technicalExitCode = $LASTEXITCODE
+    if ($technicalExitCode -ne 0) { $exitCode = $technicalExitCode }
     $ErrorActionPreference = "Stop"
+    if ($exitCode -eq 0) {
+        "[$(Get-Date -Format "yyyy-MM-dd HH:mm:ss K")] Computing $Market market regime" | Out-File -FilePath $logPath -Append -Encoding utf8
+        $ErrorActionPreference = "Continue"
+        & $pythonPath -u manage.py compute_market_regime --market $Market 2>&1 |
+            ForEach-Object {
+                $_ | Out-File -FilePath $logPath -Append -Encoding utf8
+            }
+        $exitCode = $LASTEXITCODE
+        $ErrorActionPreference = "Stop"
+    }
 }
 else {
     $exitCode = $ingestionExitCode

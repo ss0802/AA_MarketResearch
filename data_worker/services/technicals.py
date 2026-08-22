@@ -140,6 +140,7 @@ def calculate_technical_snapshot(frame: pd.DataFrame) -> dict:
         "sma50": _decimal(close.rolling(50).mean().loc[latest]),
         "sma100": _decimal(close.rolling(100).mean().loc[latest]),
         "sma150": _decimal(close.rolling(150).mean().loc[latest]),
+        "sma200": _decimal(close.rolling(200).mean().loc[latest]),
         "sma250": _decimal(close.rolling(250).mean().loc[latest]),
         "atr14": _decimal(atr_value),
         "atr_pct": _decimal(atr_value / price, "0.00000001"),

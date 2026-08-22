@@ -15,7 +15,7 @@ from django.utils import timezone
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_http_methods
 
-from .models import ChartDrawing, OHLCV, OHLCVIngestionState, Symbol, TechnicalSnapshot, WatchlistItem
+from .models import ChartDrawing, MarketRegimeSnapshot, OHLCV, OHLCVIngestionState, Symbol, TechnicalSnapshot, WatchlistItem
 
 
 def _yahoo_ticker_quotes(items):
@@ -211,12 +211,17 @@ def dashboard(request):
     from apps.trading.models import Trade
 
     trades = Trade.objects.select_related("symbol")
+    market_regimes = [
+        MarketRegimeSnapshot.objects.filter(market=market).select_related("benchmark").order_by("-as_of_date").first()
+        for market in (Symbol.Market.INDIA, Symbol.Market.US)
+    ]
     context = {
         "market_cards": market_cards,
         "search_error": search_error,
         "trade_count": trades.count(),
         "open_trade_count": trades.filter(status=Trade.Status.OPEN).count(),
         "recent_trades": trades[:5],
+        "market_regimes": market_regimes,
     }
     return render(request, "market/dashboard.html", context)
 
