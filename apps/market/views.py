@@ -437,6 +437,16 @@ def technical_screener(request):
         market = "IND"
     if timeframe not in {"D", "W", "M"}:
         timeframe = "D"
+    market_regime = MarketRegimeSnapshot.objects.filter(
+        market=market, is_verified=True,
+    ).select_related("benchmark").order_by("-as_of_date").first()
+    trade_direction = request.GET.get("trade_direction", "")
+    if trade_direction not in {"LONG", "SHORT"}:
+        trade_direction = ""
+    regime_conflict = bool(market_regime and (
+        (trade_direction == "LONG" and market_regime.regime == MarketRegimeSnapshot.Regime.BEARISH)
+        or (trade_direction == "SHORT" and market_regime.regime == MarketRegimeSnapshot.Regime.BULLISH)
+    ))
 
     snapshots = TechnicalSnapshot.objects.filter(
         symbol__market=market,
@@ -489,6 +499,12 @@ def technical_screener(request):
             except ValueError:
                 pass
 
+    regime_alignment = request.GET.get("regime_alignment", "")
+    if regime_alignment == "aligned" and regime_conflict:
+        snapshots = snapshots.none()
+    elif regime_alignment == "conflict" and not regime_conflict:
+        snapshots = snapshots.none()
+
     sort_fields = {
         "symbol": "symbol__symbol",
         "price": "price",
@@ -520,5 +536,9 @@ def technical_screener(request):
         "filters": request.GET,
         "query_without_page": query.urlencode(),
         "result_count": paginator.count,
+        "market_regime": market_regime,
+        "trade_direction": trade_direction,
+        "regime_alignment": regime_alignment,
+        "regime_conflict": regime_conflict,
     }
     return render(request, "market/technical_screener.html", context)

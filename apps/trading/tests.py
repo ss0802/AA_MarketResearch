@@ -50,6 +50,7 @@ class TradeJournalTests(TestCase):
         snapshot = capture_trade_setup(trade, "Momentum: Bullish")
         self.assertEqual(len(snapshot.payload_hash), 64)
         self.assertEqual(snapshot.entry_quality["stop_atr_units"], "1")
+        self.assertIn("market_regime", snapshot.screener_context)
         snapshot.screener_context = {}
         with self.assertRaises(ValidationError):
             snapshot.save()

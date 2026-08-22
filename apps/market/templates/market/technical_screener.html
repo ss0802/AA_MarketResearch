@@ -28,6 +28,7 @@
         a { color: #175cd3; }
         .bullish, .yes { color: #027a48; font-weight: 700; }
         .bearish, .no { color: #b42318; font-weight: 700; }
+        .regime-banner { display:flex;gap:14px;align-items:center;flex-wrap:wrap; }.regime-banner .warning{color:#b42318;font-weight:700}.regime-banner .aligned{color:#027a48;font-weight:700}
         .pagination { display: flex; justify-content: center; gap: 8px; align-items: center; margin-top: 16px; }
         .pagination a { background: #eaecf0; border-radius: 5px; padding: 7px 11px; text-decoration: none; color: #344054; }
         @media (max-width: 700px) { .container { padding: 12px; } .summary { align-items: flex-start; flex-direction: column; } }
@@ -38,11 +39,14 @@
 <div class="container">
     <h1>Technical Screener</h1>
     <div class="subtitle">Current Tradeable-universe technical snapshots</div>
+    {% if market_regime %}<div class="panel regime-banner"><strong>{{ market_regime.get_market_display }}: <span class="{{ market_regime.regime|lower }}">{{ market_regime.get_regime_display }}</span> · score {{ market_regime.score|stringformat:"+d" }}</strong><span>{{ market_regime.as_of_date }} · {{ market_regime.coverage_pct|floatformat:1 }}% verified coverage</span>{% if trade_direction %}<span class="{% if regime_conflict %}warning{% else %}aligned{% endif %}">{% if regime_conflict %}{{ trade_direction|title }} candidates conflict with the regime{% else %}{{ trade_direction|title }} candidates are not in conflict{% endif %}</span>{% endif %}<a href="{% url 'market:market_condition' market %}">Inspect evidence</a></div>{% endif %}
 
     <form class="panel" method="get">
         <div class="filters">
             <div><label>Market</label><select name="market"><option value="IND" {% if market == "IND" %}selected{% endif %}>India</option><option value="US" {% if market == "US" %}selected{% endif %}>US</option></select></div>
             <div><label>Timeframe</label><select name="timeframe"><option value="D" {% if timeframe == "D" %}selected{% endif %}>Daily</option><option value="W" {% if timeframe == "W" %}selected{% endif %}>Weekly</option><option value="M" {% if timeframe == "M" %}selected{% endif %}>Monthly</option></select></div>
+            <div><label>Planned direction</label><select name="trade_direction"><option value="">Not selected</option><option value="LONG" {% if trade_direction == "LONG" %}selected{% endif %}>Long</option><option value="SHORT" {% if trade_direction == "SHORT" %}selected{% endif %}>Short</option></select></div>
+            <div><label>Regime relationship</label><select name="regime_alignment"><option value="">Any</option><option value="aligned" {% if regime_alignment == "aligned" %}selected{% endif %}>Regime aligned</option><option value="conflict" {% if regime_alignment == "conflict" %}selected{% endif %}>Conflicts with regime</option></select></div>
             <div><label>Symbol contains</label><input name="symbol" value="{{ filters.symbol|default:'' }}"></div>
             <div><label>Market Cap</label><select name="mcap"><option value="">Any</option><option {% if filters.mcap == "Mega" %}selected{% endif %}>Mega</option><option {% if filters.mcap == "Large" %}selected{% endif %}>Large</option><option {% if filters.mcap == "Mid" %}selected{% endif %}>Mid</option><option {% if filters.mcap == "Small" %}selected{% endif %}>Small</option><option {% if filters.mcap == "Micro" %}selected{% endif %}>Micro</option><option {% if filters.mcap == "Nano" %}selected{% endif %}>Nano</option></select></div>
             <div><label>Momentum</label><select name="momentum"><option value="">Any</option><option {% if filters.momentum == "Bullish" %}selected{% endif %}>Bullish</option><option {% if filters.momentum == "Bearish" %}selected{% endif %}>Bearish</option></select></div>
@@ -67,11 +71,12 @@
         <div class="summary"><strong>{{ result_count }} results</strong><span>{{ market }} · {{ timeframe }} · As of {% if page.object_list %}{{ page.object_list.0.as_of_date }}{% else %}—{% endif %}</span></div>
         <div class="table-wrap">
             <table>
-                <thead><tr><th>Symbol</th><th>Market Cap</th><th>Price</th><th>Momentum</th><th>SMA20</th><th>SMA50</th><th>SMA100</th><th>SMA150</th><th>SMA250</th><th>VWAP</th><th>ATR%</th><th>ADX</th><th>Trend</th><th>DMI</th><th>RSI</th><th>RSI Zone</th><th>Squeeze</th><th>BB/KC</th></tr></thead>
+                <thead><tr><th>Symbol</th><th>Regime fit</th><th>Market Cap</th><th>Price</th><th>Momentum</th><th>SMA20</th><th>SMA50</th><th>SMA100</th><th>SMA150</th><th>SMA250</th><th>VWAP</th><th>ATR%</th><th>ADX</th><th>Trend</th><th>DMI</th><th>RSI</th><th>RSI Zone</th><th>Squeeze</th><th>BB/KC</th></tr></thead>
                 <tbody>
                 {% for item in page.object_list %}
                     <tr>
                         <td><a href="{% url 'market:symbol_detail' item.symbol.symbol %}?market={{ item.symbol.market }}">{{ item.symbol.symbol }}</a></td>
+                        <td class="{% if trade_direction %}{% if regime_conflict %}bearish{% else %}bullish{% endif %}{% endif %}">{% if not trade_direction %}Choose side{% elif regime_conflict %}Conflict{% else %}Aligned{% endif %}</td>
                         <td>{{ item.symbol.market_cap_category }}</td>
                         <td>{{ item.price|floatformat:2 }}</td>
                         <td class="{{ item.momentum|lower }}">{{ item.momentum }}</td>
@@ -90,7 +95,7 @@
                         <td class="{% if item.is_squeeze %}yes{% else %}no{% endif %}">{% if item.is_squeeze %}Squeeze{% else %}No{% endif %}</td>
                         <td>{{ item.bb_kc_ratio|floatformat:3|default:"—" }}</td>
                     </tr>
-                {% empty %}<tr><td colspan="18">No symbols match these filters.</td></tr>{% endfor %}
+                {% empty %}<tr><td colspan="19">No symbols match these filters.</td></tr>{% endfor %}
                 </tbody>
             </table>
         </div>

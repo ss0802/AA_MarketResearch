@@ -34,6 +34,9 @@ class TechnicalScreenerTests(TestCase):
         response = self.client.get(reverse("market:technical_screener"))
         self.assertContains(response, "TEST")
         self.assertContains(response, "Upper Zone")
+        self.assertContains(response, "Planned direction")
+        self.assertContains(response, "Regime relationship")
+        self.assertContains(response, "Choose side")
 
     def test_applies_sma_and_momentum_filters(self):
         response = self.client.get(

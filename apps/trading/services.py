@@ -5,7 +5,7 @@ from decimal import Decimal
 
 from django.forms.models import model_to_dict
 
-from apps.market.models import OHLCV, TechnicalSnapshot
+from apps.market.models import MarketRegimeSnapshot, OHLCV, TechnicalSnapshot
 
 from .models import TradeSetupSnapshot
 
@@ -73,6 +73,19 @@ def capture_trade_setup(trade, screener_filters="", chart_image=None):
         "lines": [line.strip() for line in screener_filters.splitlines() if line.strip()],
         "setup_name": trade.setup_name,
         "setup_tags": trade.setup_tags,
+    }
+    regime = MarketRegimeSnapshot.objects.filter(
+        market=trade.symbol.market, is_verified=True,
+    ).select_related("benchmark").order_by("-as_of_date").first()
+    context["market_regime"] = None if regime is None else {
+        "id": regime.id, "market": regime.market, "as_of_date": regime.as_of_date.isoformat(),
+        "benchmark": regime.benchmark.symbol, "regime": regime.regime,
+        "score": regime.score, "coverage_pct": str(regime.coverage_pct),
+        "pct_above_sma20": str(regime.pct_above_sma20),
+        "pct_above_sma50": str(regime.pct_above_sma50),
+        "pct_above_sma200": str(regime.pct_above_sma200),
+        "advance_decline_net": regime.advance_decline_net,
+        "reasons": regime.reasons,
     }
     payload = {
         "technicals": technicals, "recent_bars": bars, "entry_quality": entry_quality,
